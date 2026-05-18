@@ -1,0 +1,12 @@
+.splitter {
+  background-color: #000000;
+  transition: background-color 0.2s ease;
+}
+
+.splitter:hover {
+  background-color: #a0a0a0;
+}
+
+.splitter:active {
+  background-color: #808080;
+}
