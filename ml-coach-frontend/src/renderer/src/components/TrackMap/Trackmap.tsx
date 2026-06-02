@@ -1,12 +1,13 @@
 import { useState, useRef, useEffect } from 'react'
 import styles from './Trackmap.module.css'
-import { useLapData, Point } from '../../contexts/LapDataContext'
-import { parseCSV } from '../../utils/csvParser'
+import { useLapData, getLapColor } from '../../contexts/LapDataContext'
+import { parseCSV, Point } from '../../utils/csvParser'
 
 interface PixelPoint {
   x: number
   y: number
   lapDistPct: number
+  lapIndex: number
 }
 
 interface TrackmapProps {
@@ -20,7 +21,8 @@ function toPixelPoints(
   minLon: number,
   maxLon: number,
   width: number,
-  height: number
+  height: number,
+  lapIndex: number
 ): PixelPoint[] {
   const padding = 50
   const drawW = width - 2 * padding
@@ -29,54 +31,146 @@ function toPixelPoints(
   const midLat = (minLat + maxLat) / 2
   const cosLat = Math.cos((midLat * Math.PI) / 180)
 
-  // Physical extents
   const latRange = maxLat - minLat
-  const lonRange = (maxLon - minLon) * cosLat // corrected to real-world scale
+  const lonRange = (maxLon - minLon) * cosLat
 
-  // Scale uniformly so track fits without distortion
   const scale = Math.min(drawW / lonRange, drawH / latRange)
 
-  // Center the track in the box
   const offsetX = (drawW - lonRange * scale) / 2
   const offsetY = (drawH - latRange * scale) / 2
 
   return points.map((p) => {
     const x = padding + offsetX + (p.lon - minLon) * cosLat * scale
     const y = padding + offsetY + (latRange - (p.lat - minLat)) * scale
-    return { x, y, lapDistPct: p.lapDistPct }
+    return { x, y, lapDistPct: p.lapDistPct, lapIndex }
   })
 }
 
 function Trackmap({ onInfoChange }: TrackmapProps): React.JSX.Element {
-  const { fastPoints, slowPoints, hoveredLapPct, setHoveredLapPct } = useLapData()
+  const { laps, hoveredLapPct, setHoveredLapPct, cornerHighlight, allCornerHighlights } = useLapData()
+  const [pixelPoints, setPixelPoints] = useState<PixelPoint[][]>([])
   const [leftLimitPoints, setLeftLimitPoints] = useState<PixelPoint[]>([])
   const [rightLimitPoints, setRightLimitPoints] = useState<PixelPoint[]>([])
-  const [hoveredPoint, setHoveredPoint] = useState<PixelPoint | null>(null)
+  const [hoveredPoints, setHoveredPoints] = useState<PixelPoint[]>([])
+  const [highlightSegments, setHighlightSegments] = useState<PixelPoint[][]>([])
+  const [allSegments, setAllSegments] = useState<{ pts: PixelPoint[]; idx: number }[]>([])
 
   const svgRef = useRef<SVGSVGElement>(null)
+  const containerRef = useRef<HTMLDivElement>(null)
 
-  // Pan/zoom state
   const [pan, setPan] = useState({ x: 0, y: 0 })
   const [scale, setScale] = useState(1)
   const dragging = useRef(false)
   const dragStart = useRef({ mouseX: 0, mouseY: 0, panX: 0, panY: 0 })
+  const panRef = useRef(pan)
+  const scaleRef = useRef(scale)
+  const prevViewRef = useRef<{ pan: { x: number; y: number }; scale: number } | null>(null)
+  panRef.current = pan
+  scaleRef.current = scale
 
-  // Convert points to pixel coordinates
-  const [fastPixelPoints, setFastPixelPoints] = useState<PixelPoint[]>([])
-  const [slowPixelPoints, setSlowPixelPoints] = useState<PixelPoint[]>([])
-
+  // Convert all laps to pixel coordinates
   useEffect(() => {
-    if (fastPoints.length === 0 && slowPoints.length === 0) return
+    if (laps.length === 0) {
+      setPixelPoints([])
+      return
+    }
 
-    const allPoints = [...fastPoints, ...slowPoints]
+    const allPoints = laps.flatMap((l) => l.points)
     const minLat = Math.min(...allPoints.map((p) => p.lat))
     const maxLat = Math.max(...allPoints.map((p) => p.lat))
     const minLon = Math.min(...allPoints.map((p) => p.lon))
     const maxLon = Math.max(...allPoints.map((p) => p.lon))
 
-    setFastPixelPoints(toPixelPoints(fastPoints, minLat, maxLat, minLon, maxLon, 800, 800))
-    setSlowPixelPoints(toPixelPoints(slowPoints, minLat, maxLat, minLon, maxLon, 800, 800))
-  }, [fastPoints, slowPoints])
+    setPixelPoints(
+      laps.map((lap, i) => toPixelPoints(lap.points, minLat, maxLat, minLon, maxLon, 800, 800, i))
+    )
+  }, [laps])
+
+  // Compute highlighted corner segments from coaching report
+  useEffect(() => {
+    if (cornerHighlight === null || pixelPoints.length === 0) {
+      setHighlightSegments([])
+      return
+    }
+
+    const { startPct, endPct } = cornerHighlight
+    const segs: PixelPoint[][] = []
+
+    for (let i = 0; i < pixelPoints.length; i++) {
+      const filtered = pixelPoints[i].filter(
+        (p) => p.lapDistPct >= startPct && p.lapDistPct <= endPct
+      )
+      if (filtered.length > 0) segs.push(filtered)
+    }
+    setHighlightSegments(segs)
+  }, [cornerHighlight, pixelPoints])
+
+  const CORNER_COLORS = ['#ff4444', '#44bb44', '#4488ff', '#ff8800', '#cc44cc', '#888888', '#44dddd', '#ff44aa']
+
+  // Compute all corner highlight segments
+  useEffect(() => {
+    if (allCornerHighlights.length === 0 || pixelPoints.length === 0) {
+      setAllSegments([])
+      return
+    }
+    const segs: { pts: PixelPoint[]; idx: number }[] = []
+    for (const { startPct, endPct, idx } of allCornerHighlights) {
+      for (let i = 0; i < pixelPoints.length; i++) {
+        const filtered = pixelPoints[i].filter(
+          (p) => p.lapDistPct >= startPct && p.lapDistPct <= endPct
+        )
+        if (filtered.length > 0) segs.push({ pts: filtered, idx })
+      }
+    }
+    setAllSegments(segs)
+  }, [allCornerHighlights, pixelPoints])
+
+  // Zoom into highlighted corner segment
+  useEffect(() => {
+    if (cornerHighlight === null) {
+      if (prevViewRef.current) {
+        setPan(prevViewRef.current.pan)
+        setScale(prevViewRef.current.scale)
+        prevViewRef.current = null
+      }
+      return
+    }
+
+    if (pixelPoints.length === 0) return
+
+    if (!prevViewRef.current) {
+      prevViewRef.current = { pan: { ...panRef.current }, scale: scaleRef.current }
+    }
+
+    const { startPct, endPct } = cornerHighlight
+    const allPts = pixelPoints.flat().filter(
+      (p) => p.lapDistPct >= startPct && p.lapDistPct <= endPct
+    )
+
+    if (allPts.length === 0) return
+
+    const xs = allPts.map((p) => p.x)
+    const ys = allPts.map((p) => p.y)
+    const minX = Math.min(...xs)
+    const maxX = Math.max(...xs)
+    const minY = Math.min(...ys)
+    const maxY = Math.max(...ys)
+
+    const boxW = maxX - minX || 1
+    const boxH = maxY - minY || 1
+    const padding = 40
+    const centerX = (minX + maxX) / 2
+    const centerY = (minY + maxY) / 2
+
+    const targetScale = Math.min(
+      560 / (boxW + 2 * padding),
+      560 / (boxH + 2 * padding)
+    )
+    const clampedScale = Math.max(0.5, Math.min(targetScale, 50))
+
+    setPan({ x: 400 - centerX * clampedScale, y: 400 - centerY * clampedScale })
+    setScale(clampedScale)
+  }, [cornerHighlight, pixelPoints])
 
   // Load track limits
   useEffect(() => {
@@ -92,59 +186,58 @@ function Trackmap({ onInfoChange }: TrackmapProps): React.JSX.Element {
         const leftRaw = parseCSV(leftCsv)
         const rightRaw = parseCSV(rightCsv)
 
-        // Use same bounds as racing lines (fast + slow only)
-        const allPoints = [...fastPoints, ...slowPoints]
+        const allPoints = laps.flatMap((l) => l.points)
+        if (allPoints.length === 0) return
         const minLat = Math.min(...allPoints.map((p) => p.lat))
         const maxLat = Math.max(...allPoints.map((p) => p.lat))
         const minLon = Math.min(...allPoints.map((p) => p.lon))
         const maxLon = Math.max(...allPoints.map((p) => p.lon))
 
-        setLeftLimitPoints(toPixelPoints(leftRaw, minLat, maxLat, minLon, maxLon, 800, 800))
-        setRightLimitPoints(toPixelPoints(rightRaw, minLat, maxLat, minLon, maxLon, 800, 800))
+        setLeftLimitPoints(toPixelPoints(leftRaw, minLat, maxLat, minLon, maxLon, 800, 800, -1))
+        setRightLimitPoints(toPixelPoints(rightRaw, minLat, maxLat, minLon, maxLon, 800, 800, -1))
       } catch (err) {
         console.error('Failed to load track limits:', err)
       }
     }
 
-    if (fastPoints.length > 0 || slowPoints.length > 0) {
+    if (laps.length > 0) {
       loadLimits()
     }
-  }, [fastPoints, slowPoints])
+  }, [laps])
 
-  // Sync hovered point from graph hovers
+  // Sync hovered points from graph hovers
   useEffect(() => {
     if (hoveredLapPct === null) {
-      setHoveredPoint(null)
+      setHoveredPoints([])
       return
     }
 
-    const allPoints = [...fastPixelPoints, ...slowPixelPoints]
-    let closest: PixelPoint | null = null
-    let minDiff = Infinity
-
-    for (const p of allPoints) {
-      const diff = Math.abs(p.lapDistPct - hoveredLapPct)
-      if (diff < minDiff) {
-        minDiff = diff
-        closest = p
+    const found: PixelPoint[] = []
+    for (let i = 0; i < pixelPoints.length; i++) {
+      let closest: PixelPoint | null = null
+      let minDiff = Infinity
+      for (const p of pixelPoints[i]) {
+        const diff = Math.abs(p.lapDistPct - hoveredLapPct)
+        if (diff < minDiff) {
+          minDiff = diff
+          closest = p
+        }
       }
+      if (closest && minDiff < 0.01) found.push(closest)
     }
+    setHoveredPoints(found)
+  }, [hoveredLapPct, pixelPoints])
 
-    if (closest && minDiff < 0.01) {
-      setHoveredPoint(closest)
-    }
-  }, [hoveredLapPct, fastPixelPoints, slowPixelPoints])
-
-  // Report info text
-  const trackmapInfo = hoveredPoint
-    ? `Track Map | Hover: ${(hoveredPoint.lapDistPct * 100).toFixed(1)}%`
-    : 'Track Map'
+  const trackmapInfo = hoveredPoints.length > 0
+    ? `Track Map | Hover: ${(hoveredPoints[0].lapDistPct * 100).toFixed(1)}%`
+    : laps.length > 0
+      ? 'Track Map'
+      : 'Track Map (import a lap)'
 
   useEffect(() => {
     onInfoChange?.(trackmapInfo)
   }, [trackmapInfo, onInfoChange])
 
-  // Helper: convert screen coords to viewBox coords (0-800) accounting for padding
   function screenToViewBox(clientX: number, clientY: number, rect: DOMRect) {
     const scaleFactor = Math.min(rect.width, rect.height) / 800
     const paddingX = (rect.width - 800 * scaleFactor) / 2
@@ -156,7 +249,6 @@ function Trackmap({ onInfoChange }: TrackmapProps): React.JSX.Element {
     }
   }
 
-  // Pan handlers
   function handlePanMouseDown(e: React.MouseEvent) {
     e.preventDefault()
     dragging.current = true
@@ -198,27 +290,30 @@ function Trackmap({ onInfoChange }: TrackmapProps): React.JSX.Element {
     }
   }, [])
 
-  // Zoom handler
-  function handleWheel(e: React.WheelEvent) {
-    e.preventDefault()
-    const svg = svgRef.current
-    if (!svg) return
+  useEffect(() => {
+    const el = containerRef.current
+    if (!el) return
+    function onWheel(e: WheelEvent) {
+      e.preventDefault()
+      const svg = svgRef.current
+      if (!svg) return
 
-    const rect = svg.getBoundingClientRect()
-    const mouse = screenToViewBox(e.clientX, e.clientY, rect)
+      const rect = svg.getBoundingClientRect()
+      const mouse = screenToViewBox(e.clientX, e.clientY, rect)
 
-    let newScale = scale - e.deltaY * 0.001 * scale
-    newScale = Math.max(0.5, Math.min(newScale, 50))
+      let newScale = scale - e.deltaY * 0.001 * scale
+      newScale = Math.max(0.5, Math.min(newScale, 50))
 
-    // Zoom towards mouse: keep point under mouse fixed
-    const newPanX = mouse.x - ((mouse.x - pan.x) / scale) * newScale
-    const newPanY = mouse.y - ((mouse.y - pan.y) / scale) * newScale
+      const newPanX = mouse.x - ((mouse.x - pan.x) / scale) * newScale
+      const newPanY = mouse.y - ((mouse.y - pan.y) / scale) * newScale
 
-    setPan({ x: newPanX, y: newPanY })
-    setScale(newScale)
-  }
+      setPan({ x: newPanX, y: newPanY })
+      setScale(newScale)
+    }
+    el.addEventListener('wheel', onWheel, { passive: false })
+    return () => el.removeEventListener('wheel', onWheel)
+  }, [scale, pan])
 
-  // handle mouse hover to show LapDistPct and sync to graphs
   function handleMouseMove(e: React.MouseEvent<SVGSVGElement>) {
     const svg = svgRef.current
     if (!svg) return
@@ -226,15 +321,14 @@ function Trackmap({ onInfoChange }: TrackmapProps): React.JSX.Element {
     const rect = svg.getBoundingClientRect()
     const mouse = screenToViewBox(e.clientX, e.clientY, rect)
 
-    // Reverse g transform: translate(pan.x, pan.y) scale(scale)
     const lx = (mouse.x - pan.x) / scale
     const ly = (mouse.y - pan.y) / scale
 
     let minDist = Infinity
     let closestPoint: PixelPoint | null = null
-    const allPoints = [...fastPixelPoints, ...slowPixelPoints]
+    const flat = pixelPoints.flat()
 
-    for (const p of allPoints) {
+    for (const p of flat) {
       const dx = p.x - lx
       const dy = p.y - ly
       const dist = dx * dx + dy * dy
@@ -245,17 +339,25 @@ function Trackmap({ onInfoChange }: TrackmapProps): React.JSX.Element {
     }
 
     if (closestPoint !== null) {
-      setHoveredPoint(closestPoint)
       setHoveredLapPct(closestPoint.lapDistPct)
     } else {
-      setHoveredPoint(null)
       setHoveredLapPct(null)
     }
   }
 
+  if (laps.length === 0) {
+    return (
+      <div className={styles.base}>
+        <div style={{ padding: 16, color: '#888', fontSize: 13 }}>
+          No lap data — use File → Import Lap
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className={styles.base}>
-      <div className={styles.mapContainer} onWheel={handleWheel}>
+      <div className={styles.mapContainer} ref={containerRef}>
         <svg
           ref={svgRef}
           width="100%"
@@ -266,7 +368,7 @@ function Trackmap({ onInfoChange }: TrackmapProps): React.JSX.Element {
           onMouseMove={handleMouseMove}
         >
           <g transform={`translate(${pan.x}, ${pan.y}) scale(${scale})`}>
-            {/* Track limits (black, underneath) */}
+            {/* Track limits */}
             <polyline
               points={leftLimitPoints.map((p) => `${p.x},${p.y}`).join(' ')}
               fill="none"
@@ -281,33 +383,69 @@ function Trackmap({ onInfoChange }: TrackmapProps): React.JSX.Element {
               strokeWidth={2.4 / scale}
               opacity="0.7"
             />
-            {/* Slow driver (blue) */}
-            <polyline
-              points={slowPixelPoints.map((p) => `${p.x},${p.y}`).join(' ')}
-              fill="none"
-              stroke="#0066cc"
-              strokeWidth={1.3 / scale}
-            />
-            {/* Fast driver (red) */}
-            <polyline
-              points={fastPixelPoints.map((p) => `${p.x},${p.y}`).join(' ')}
-              fill="none"
-              stroke="#cc0000"
-              strokeWidth={1.3 / scale}
-            />
-            {/* Hovered point dot */}
-            {hoveredPoint && (
-              <circle
-                cx={hoveredPoint.x}
-                cy={hoveredPoint.y}
-                r={5 / scale}
-                fill={
-                  slowPixelPoints.some((p) => p.x === hoveredPoint.x && p.y === hoveredPoint.y)
-                    ? '#0066cc'
-                    : '#cc0000'
-                }
+            {/* All corners highlight (glow + main) */}
+            {allSegments.map((seg, i) => {
+              const color = CORNER_COLORS[seg.idx % CORNER_COLORS.length]
+              return (
+                <polyline
+                  key={`all-glow-${i}`}
+                  points={seg.pts.map((p) => `${p.x},${p.y}`).join(' ')}
+                  fill="none"
+                  stroke={color}
+                  strokeWidth={14 / scale}
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  opacity={0.3}
+                />
+              )
+            })}
+            {allSegments.map((seg, i) => {
+              const color = CORNER_COLORS[seg.idx % CORNER_COLORS.length]
+              return (
+                <polyline
+                  key={`all-${i}`}
+                  points={seg.pts.map((p) => `${p.x},${p.y}`).join(' ')}
+                  fill="none"
+                  stroke={color}
+                  strokeWidth={5 / scale}
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  opacity={0.95}
+                />
+              )
+            })}
+            {/* Highlighted corner segment (active selection) */}
+            {highlightSegments.map((pts, i) => (
+              <polyline
+                key={`hl-${i}`}
+                points={pts.map((p) => `${p.x},${p.y}`).join(' ')}
+                fill="none"
+                stroke="#ffcc00"
+                strokeWidth={4 / scale}
+                strokeLinecap="round"
+                strokeLinejoin="round"
               />
-            )}
+            ))}
+            {/* Lap polylines */}
+            {pixelPoints.map((pts, i) => (
+              <polyline
+                key={i}
+                points={pts.map((p) => `${p.x},${p.y}`).join(' ')}
+                fill="none"
+                stroke={getLapColor(i)}
+                strokeWidth={1.3 / scale}
+              />
+            ))}
+            {/* Hovered points (one per lap) */}
+            {hoveredPoints.map((p, i) => (
+              <circle
+                key={i}
+                cx={p.x}
+                cy={p.y}
+                r={5 / scale}
+                fill={getLapColor(p.lapIndex)}
+              />
+            ))}
           </g>
         </svg>
       </div>

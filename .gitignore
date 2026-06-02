@@ -1,2 +1,4 @@
 /ml-coach-frontend/node_modules
 /project/__pycache__
+ml-coach-frontend/.eslintcache
+ml-coach-frontend/tsconfig.node.tsbuildinfo

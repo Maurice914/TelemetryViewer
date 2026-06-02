@@ -5,6 +5,9 @@ export interface Point {
   throttle: number
   brake: number
   speed: number
+  rpm: number
+  steeringWheelAngle: number
+  gear: number
   timeDelta: number | null
 }
 
@@ -12,24 +15,60 @@ export function parseCSV(csvText: string): Point[] {
   const lines = csvText.trim().split('\n')
   if (lines.length < 2) return []
 
-  const headers = lines[0].split(',').map(h => h.trim())
-  const latIdx = headers.indexOf('Lat')
-  const lonIdx = headers.indexOf('Lon')
-  const lapDistPctIdx = headers.indexOf('LapDistPct')
-  const throttleIdx = headers.indexOf('Throttle')
-  const brakeIdx = headers.indexOf('Brake')
-  const speedIdx = headers.indexOf('Speed')
+  const headers = lines[0].split(',').map((h) => h.trim().toLowerCase())
+  const latIdx = headers.indexOf('lat')
+  const lonIdx = headers.indexOf('lon')
+  const lapDistPctIdx = headers.indexOf('lapdistpct')
+  const throttleIdx = headers.indexOf('throttle')
+  const brakeIdx = headers.indexOf('brake')
+  const speedIdx = headers.indexOf('speed')
+  const rpmIdx = headers.indexOf('rpm')
+  const steeringIdx = headers.indexOf('steeringwheelangle')
+  const gearIdx = headers.indexOf('gear')
 
-  if (latIdx === -1 || lonIdx === -1 || lapDistPctIdx === -1 || throttleIdx === -1 || brakeIdx === -1 || speedIdx === -1) return []
+  if (
+    latIdx === -1 ||
+    lonIdx === -1 ||
+    lapDistPctIdx === -1 ||
+    throttleIdx === -1 ||
+    brakeIdx === -1 ||
+    speedIdx === -1
+  )
+    return []
 
-  return lines.slice(1).map(line => {
-    const cols = line.split(',')
-    const lat = parseFloat(cols[latIdx])
-    const lon = parseFloat(cols[lonIdx])
-    const lapDistPct = parseFloat(cols[lapDistPctIdx])
-    const throttle = parseFloat(cols[throttleIdx])
-    const brake = parseFloat(cols[brakeIdx])
-    const speed = parseFloat(cols[speedIdx])
-    return { lat, lon, lapDistPct, throttle, brake, speed, timeDelta: null }
-  }).filter(p => !isNaN(p.lat) && !isNaN(p.lon) && !isNaN(p.lapDistPct) && !isNaN(p.throttle) && !isNaN(p.brake) && !isNaN(p.speed))
+  return lines
+    .slice(1)
+    .map((line) => {
+      const cols = line.split(',')
+      const lat = parseFloat(cols[latIdx])
+      const lon = parseFloat(cols[lonIdx])
+      const lapDistPct = parseFloat(cols[lapDistPctIdx])
+      const throttle = parseFloat(cols[throttleIdx])
+      const brake = parseFloat(cols[brakeIdx])
+      const speed = parseFloat(cols[speedIdx])
+      const rpm = rpmIdx !== -1 ? parseFloat(cols[rpmIdx]) : 0
+      const steeringWheelAngle = steeringIdx !== -1 ? parseFloat(cols[steeringIdx]) : 0
+      const gear = gearIdx !== -1 ? parseFloat(cols[gearIdx]) : 0
+      return {
+        lat,
+        lon,
+        lapDistPct,
+        throttle,
+        brake,
+        speed,
+        rpm,
+        steeringWheelAngle,
+        gear,
+        timeDelta: null
+      }
+    })
+    .filter(
+      (p) =>
+        !isNaN(p.lat) &&
+        !isNaN(p.lon) &&
+        !isNaN(p.lapDistPct) &&
+        !isNaN(p.throttle) &&
+        !isNaN(p.brake) &&
+        !isNaN(p.speed)
+    )
 }

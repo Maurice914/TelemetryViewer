@@ -2,7 +2,8 @@
 const electron = require("electron");
 const preload = require("@electron-toolkit/preload");
 const api = {
-  readFile: (filePath) => electron.ipcRenderer.invoke("read-file", filePath)
+  readFile: (filePath) => electron.ipcRenderer.invoke("read-file", filePath),
+  runCoaching: (data) => electron.ipcRenderer.invoke("run-coaching", data)
 };
 if (process.contextIsolated) {
   try {

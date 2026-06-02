@@ -3,7 +3,9 @@ import { electronAPI } from '@electron-toolkit/preload'
 
 // Custom APIs for renderer
 const api = {
-  readFile: (filePath: string) => ipcRenderer.invoke('read-file', filePath)
+  readFile: (filePath: string) => ipcRenderer.invoke('read-file', filePath),
+  runCoaching: (data: { fastPoints: unknown[]; slowPoints: unknown[] }) =>
+    ipcRenderer.invoke('run-coaching', data)
 }
 
 // Use `contextBridge` APIs to expose Electron APIs to

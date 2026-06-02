@@ -1,11 +1,11 @@
 import { useLapData, getLapColor } from '../../contexts/LapDataContext'
 import Graph from './Graph'
 
-interface ThrottleGraphProps {
+interface SpeedGraphProps {
   onInfoChange?: (text: string) => void
 }
 
-function ThrottleGraph({ onInfoChange }: ThrottleGraphProps) {
+function SpeedGraph({ onInfoChange }: SpeedGraphProps) {
   const { laps } = useLapData()
 
   if (laps.length === 0) {
@@ -18,12 +18,12 @@ function ThrottleGraph({ onInfoChange }: ThrottleGraphProps) {
 
   return (
     <Graph
-      label="Throttle"
-      dataKey="throttle"
+      label="Speed"
+      dataKey="speed"
       lines={laps.map((l, i) => ({ points: l.points, color: getLapColor(i) }))}
       onInfoChange={onInfoChange}
     />
   )
 }
 
-export default ThrottleGraph
+export default SpeedGraph

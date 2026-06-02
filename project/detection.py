@@ -5,146 +5,157 @@ from data import resample_lap
 
 
 def detect_corners(fast_df: pd.DataFrame, slow_df: pd.DataFrame) -> list[dict]:
-    """
-    Automatically detect corners from telemetry data.
-
-    Args:
-        fast_df: Fast (reference) lap DataFrame with resampled columns
-        slow_df: Slow (student) lap DataFrame
-
-    Returns:
-        List of corner dicts with keys: name, start, end, apex, peak_steering,
-        peak_lataccel, brake_onset, turn_in, detection_type
-    """
-    # Resample both laps to consistent 1m grid
     fast_r = resample_lap(fast_df)
-    slow_r = resample_lap(slow_df)
+    slow_r = resample_lap(slow_df, track_length=len(fast_r))
 
-    # Check for partial lap
     if fast_r.index[0] > 10 or slow_r.index[0] > 10:
         raise ValueError("Partial lap detected - requires full lap starting near 0m")
 
-    # Compute average signal across both laps
-    avg_steering = (np.abs(fast_r['SteeringWheelAngle']) + np.abs(slow_r['SteeringWheelAngle'])) / 2
-    avg_brake = (fast_r['Brake'] + slow_r['Brake']) / 2
-    avg_lataccel = (np.abs(fast_r['LatAccel']) + np.abs(slow_r['LatAccel'])) / 2
+    steering = np.maximum(fast_r['SteeringWheelAngle'].abs(), slow_r['SteeringWheelAngle'].abs())
+    brake = (fast_r['Brake'] + slow_r['Brake']) / 2
+    throttle = (fast_r['Throttle'] + slow_r['Throttle']) / 2
+    lataccel = (np.abs(fast_r['LatAccel']) + np.abs(slow_r['LatAccel'])) / 2
 
-    # Smooth signals
-    steering_smooth = avg_steering.rolling(window=5, center=True).mean().fillna(0)
-    brake_smooth = avg_brake.rolling(window=5, center=True).mean().fillna(0)
+    steering = steering.rolling(5, center=True).mean().fillna(0)
+    brake = brake.rolling(5, center=True).mean().fillna(0)
+    lataccel = lataccel.rolling(5, center=True).mean().fillna(0)
 
-    # Find steering peaks (corner apexes)
-    # prominence: how much peak stands out from surrounding
-    # distance: minimum samples between peaks (~80m = 80 samples at 1m resolution)
-    peaks, properties = find_peaks(
-        steering_smooth.values,
-        prominence=0.03,
-        distance=80,
-        width=10
-    )
+    track_length = len(steering)
+    distances = steering.index.values
 
+    steer_norm = steering / max(steering.max(), 0.01)
+    lat_norm = lataccel / max(lataccel.max(), 0.01)
+
+    min_core = max(10, track_length // 200)
+    merge_dist = max(20, track_length // 120)
+
+    # === Find core corner regions from brake signal ===
+    brake_min = max(0.05, brake.quantile(0.15))
+    cores = _mask_to_zones((brake > brake_min).astype(int).values, track_length, min_core)
+
+    if not cores:
+        # Fallback: try steering/lataccel-based cores when brake fails
+        turning = ((steer_norm + lat_norm) > 0.3).astype(int).values
+        cores = _mask_to_zones(turning, track_length, min_core)
+
+    if not cores:
+        return []
+
+    # === Merge nearby cores ===
+    cores_sorted = sorted(cores, key=lambda z: z[0])
+    merged = [cores_sorted[0]]
+    for z in cores_sorted[1:]:
+        gap = z[0] - merged[-1][1]
+        md = max(20, track_length // 120)
+        if gap < md:
+            merged[-1][1] = max(merged[-1][1], z[1])
+        else:
+            merged.append(z)
+
+    # === Build corners with three-phase boundaries ===
+    # Entry = brake zone start | Apex = max lataccel/steer | Exit = throttle recovery
+    max_extent = track_length // 4
     corners = []
-    distances = steering_smooth.index.values
+    for i, (core_start, core_end) in enumerate(merged):
+        start = core_start
 
-    for i, apex_idx in enumerate(peaks):
-        apex_dist = distances[apex_idx]
-        peak_steering = steering_smooth.iloc[apex_idx]
-        peak_lataccel = avg_lataccel.iloc[apex_idx] if i < len(avg_lataccel) else 0
-
-        # Find start: brake onset OR turn-in (significant steering increase)
-        brake_onset = None
-        turn_in = None
-
-        # Look for brake onset before apex
-        for j in range(apex_idx - 1, max(0, apex_idx - 300), -1):
-            if brake_smooth.iloc[j] > 0.1:
-                brake_onset = int(distances[j])
-                break
-
-        # Look for turn-in (steering crosses threshold)
-        steering_threshold = 0.03
-        for j in range(apex_idx - 1, max(0, apex_idx - 200), -1):
-            if steering_smooth.iloc[j] > steering_threshold:
-                turn_in = int(distances[j])
-                break
-
-        # Start is earlier of brake_onset or turn_in
-        start = brake_onset if brake_onset else turn_in
-        if start is None:
-            start = int(apex_dist - 50)  # fallback
-
-        # Find end: steering changes direction (next corner) OR returns to straight
-        steering_change = None
-        steering_straight = None
-
-        # Look for steering reversal (changes direction)
-        if i + 1 < len(peaks):
-            next_apex = distances[peaks[i + 1]]
-            # Check if steering changes sign between apexes
-            sign_before = np.sign(steering_smooth.iloc[apex_idx - 5:apex_idx].diff().mean())
-            sign_after = np.sign(steering_smooth.iloc[apex_idx:apex_idx + 5].diff().mean())
-            if sign_before != sign_after and sign_after != 0:
-                # Steering direction changed - corner into corner
-                steering_change = int((apex_dist + next_apex) / 2)
-
-        # Look for steering returning to near-zero
-        straight_threshold = 0.02
-        for j in range(apex_idx + 1, min(len(steering_smooth), apex_idx + 200)):
-            if steering_smooth.iloc[j] < straight_threshold:
-                steering_straight = int(distances[j])
-                break
-
-        # End is earlier of steering_change or steering_straight
-        if steering_change and steering_straight:
-            end = min(steering_change, steering_straight)
-        elif steering_change:
-            end = steering_change
-        elif steering_straight:
-            end = steering_straight
-        else:
-            end = int(apex_dist + 50)  # fallback
-
-        # Determine detection type
-        if brake_onset and steering_change:
-            detection_type = "brake-to-corner"
-        elif brake_onset and steering_straight:
-            detection_type = "brake-to-straight"
-        elif turn_in and not brake_onset:
-            detection_type = "no-brake-turn-in"
-        else:
-            detection_type = "detected"
-
-        corners.append({
-            'name': f'Corner {i + 1}',
-            'start': start,
-            'end': end,
-            'apex': int(apex_dist),
-            'peak_steering': round(peak_steering, 3),
-            'peak_lataccel': round(peak_lataccel, 2),
-            'brake_onset': brake_onset,
-            'turn_in': turn_in,
-            'detection_type': detection_type
-        })
-
-    # Merge corners that are too close (high-downforce car scenario)
-    # If gap between corners < 80m, merge them
-    merged_corners = []
-    for corner in corners:
-        if not merged_corners:
-            merged_corners.append(corner)
+        zone_check_lat = lat_norm.iloc[start:core_end].max() if core_end > start else 0
+        zone_check_steer = steer_norm.iloc[start:core_end].max() if core_end > start else 0
+        if zone_check_lat < 0.15 and zone_check_steer < 0.15:
             continue
 
-        prev = merged_corners[-1]
-        gap = corner['start'] - prev['end']
+        margin = 15
+        s = max(0, start - margin)
+        e = min(track_length, core_end + margin)
+        zone_lat = lataccel.iloc[s:e]
+        zone_steer = steering.iloc[s:e]
+        if zone_lat.max() > 0.05:
+            apex = int(zone_lat.idxmax())
+        elif zone_steer.max() > 0.05:
+            apex = int(zone_steer.idxmax())
+        else:
+            apex = (start + core_end) // 2
 
-        if gap < 80:
-            # Merge: extend previous corner's end to this one's end
-            # Keep earlier start, use average peak values
-            prev['end'] = corner['end']
+        apex = max(apex, start)
+
+        next_brake_start = merged[i + 1][0] if i + 1 < len(merged) else track_length
+        _end = _find_throttle_recovery(throttle, apex, next_brake_start)
+        if _end is None or _end <= start:
+            _end = min(next_brake_start, start + max_extent)
+        _end = min(_end, track_length)
+        min_zone = 30
+        if _end - start < min_zone:
+            _end = min(start + min_zone, track_length)
+        if _end - start > max_extent:
+            _end = start + max_extent
+
+        corners.append({
+            'name': f'Corner {len(corners) + 1}',
+            'start': int(start),
+            'end': int(_end),
+            'apex': int(apex),
+            'peak_steering': round(steering.iloc[apex], 3),
+            'peak_lataccel': round(lataccel.iloc[apex], 2),
+            'detection_type': 'detected'
+        })
+
+    return _merge_corners(corners, 0)
+
+
+def _find_throttle_recovery(throttle, core_end, limit):
+    search_start = min(core_end + 20, max(core_end + 1, limit - 5))
+    seg = throttle.iloc[search_start:limit]
+    if len(seg) < 5:
+        return None
+    lo, hi = seg.min(), seg.max()
+    if hi - lo < 0.05:
+        return None
+    target = lo + 0.65 * (hi - lo)
+    vals = seg.values
+    for j in range(len(vals) - 2):
+        if vals[j] >= target and vals[j + 1] >= target and vals[j + 2] >= target:
+            return search_start + j
+    return None
+
+
+def _mask_to_zones(mask, track_length, min_len):
+    mask = mask.copy()
+    transitions = np.diff(mask, prepend=0)
+    starts = np.where(transitions == 1)[0]
+    ends = np.where(transitions == -1)[0]
+    if mask[-1] == 1:
+        ends = np.append(ends, len(mask) - 1)
+    zones = []
+    si, ei = 0, 0
+    while si < len(starts) and ei < len(ends):
+        s = int(starts[si])
+        e = int(ends[ei])
+        if e <= s:
+            ei += 1
+            continue
+        zones.append([s, e])
+        si += 1
+        ei += 1
+    return [z for z in zones if z[1] - z[0] >= min_len]
+
+
+def _merge_corners(corners, merge_distance):
+    merged = []
+    for corner in corners:
+        if not merged:
+            merged.append(corner)
+            continue
+        prev = merged[-1]
+        gap = corner['start'] - prev['end']
+        if gap < merge_distance:
+            prev['end'] = max(prev['end'], corner['end'])
             prev['peak_steering'] = (prev['peak_steering'] + corner['peak_steering']) / 2
             prev['peak_lataccel'] = (prev['peak_lataccel'] + corner['peak_lataccel']) / 2
             prev['detection_type'] = 'merged'
         else:
-            merged_corners.append(corner)
+            merged.append(corner)
 
-    return merged_corners
+    for i, c in enumerate(merged):
+        c['name'] = f'Corner {i + 1}'
+
+    return merged

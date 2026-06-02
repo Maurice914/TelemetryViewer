@@ -1,6 +1,5 @@
 import numpy as np
 import matplotlib.pyplot as plt
-from project.config import TRACK_LENGTH
 from project.data import load_lap, resample_lap, compute_delta
 from project.detection import detect_corners
 from project.analysis import analyze_corner

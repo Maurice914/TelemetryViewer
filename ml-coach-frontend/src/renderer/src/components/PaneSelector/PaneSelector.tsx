@@ -2,36 +2,51 @@ import { useState } from 'react'
 import Trackmap from '../TrackMap/Trackmap'
 import ThrottleGraph from '../Graphs/ThrottleGraph'
 import BrakeGraph from '../Graphs/BrakeGraph'
+import SpeedGraph from '../Graphs/SpeedGraph'
+import RPMGraph from '../Graphs/RPMGraph'
+import SteeringWheelAngleGraph from '../Graphs/SteeringWheelAngleGraph'
+import GearGraph from '../Graphs/GearGraph'
 import TimeDeltaGraph from '../Graphs/TimeDeltaGraph'
+import CoachingReport from '../CoachingReport/CoachingReport'
 
 interface PaneSelectorProps {
   defaultComponent?: string
+  onRemove?: () => void
+  onComponentChange?: (componentId: string) => void
 }
 
-const COMPONENTS: Record<string, { component: React.ComponentType<{ onInfoChange?: (text: string) => void }>; defaultLabel: string }> = {
+const COMPONENTS: Record<
+  string,
+  {
+    component: React.ComponentType<{ onInfoChange?: (text: string) => void }>
+    defaultLabel: string
+  }
+> = {
   trackmap: { component: Trackmap, defaultLabel: 'Track Map' },
   throttle: { component: ThrottleGraph, defaultLabel: 'Throttle' },
   brake: { component: BrakeGraph, defaultLabel: 'Brake' },
+  speed: { component: SpeedGraph, defaultLabel: 'Speed' },
+  rpm: { component: RPMGraph, defaultLabel: 'RPM' },
+  steering: { component: SteeringWheelAngleGraph, defaultLabel: 'Steering' },
+  gear: { component: GearGraph, defaultLabel: 'Gear' },
   delta: { component: TimeDeltaGraph, defaultLabel: 'Delta' },
-  gear: { component: GearPlaceholder, defaultLabel: 'Gear' },
-  empty: { component: EmptyPlaceholder, defaultLabel: '' },
-}
-
-function GearPlaceholder() {
-  return <div style={{ padding: 16, color: '#888' }}>Gear graph coming soon</div>
+  coaching: { component: CoachingReport, defaultLabel: 'Coaching Report' },
+  empty: { component: EmptyPlaceholder, defaultLabel: '' }
 }
 
 function EmptyPlaceholder() {
   return null
 }
 
-function PaneSelector({ defaultComponent = 'empty' }: PaneSelectorProps) {
+function PaneSelector({ defaultComponent = 'empty', onRemove, onComponentChange }: PaneSelectorProps) {
   const [paneId, setPaneId] = useState(defaultComponent)
   const [infoText, setInfoText] = useState('')
 
   function handlePaneChange(e: React.ChangeEvent<HTMLSelectElement>) {
-    setPaneId(e.target.value)
+    const id = e.target.value
+    setPaneId(id)
     setInfoText('')
+    onComponentChange?.(id)
   }
 
   const entry = COMPONENTS[paneId] ?? COMPONENTS.empty
@@ -52,17 +67,42 @@ function PaneSelector({ defaultComponent = 'empty' }: PaneSelectorProps) {
           background: '#f5f5f5'
         }}
       >
-        <select value={paneId} onChange={handlePaneChange} style={{ fontSize: 13, padding: '1px 4px' }}>
+        <select
+          value={paneId}
+          onChange={handlePaneChange}
+          style={{ fontSize: 13, padding: '1px 4px' }}
+        >
           <option value="trackmap">Track Map</option>
           <option value="throttle">Throttle</option>
           <option value="brake">Brake</option>
-          <option value="delta">Delta</option>
+          <option value="speed">Speed</option>
+          <option value="rpm">RPM</option>
+          <option value="steering">Steering</option>
           <option value="gear">Gear</option>
+          <option value="delta">Delta</option>
+          <option value="coaching">Coaching Report</option>
           <option value="empty">Empty</option>
         </select>
-        <span>{displayText}</span>
+        <span style={{ flex: 1 }}>{displayText}</span>
+        {onRemove && (
+          <button
+            onClick={onRemove}
+            style={{
+              background: 'none',
+              border: 'none',
+              cursor: 'pointer',
+              color: '#999',
+              fontSize: 13,
+              padding: '0 2px',
+              lineHeight: 1
+            }}
+            title="Remove pane"
+          >
+            ✕
+          </button>
+        )}
       </div>
-      <div style={{ flex: 1, overflow: 'hidden' , margin: 4}}>
+      <div style={{ flex: 1, overflow: 'hidden', margin: 4 }}>
         <Component onInfoChange={setInfoText} />
       </div>
     </div>

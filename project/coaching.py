@@ -3,6 +3,10 @@ from analysis import analyze_corner
 from detection import detect_corners
 
 
+class _DebugList(list):
+    pass
+
+
 def analyze_laps(fast_csv_path: str, slow_csv_path: str, track_name: str = 'Unknown Track'):
     """
     Analyze two laps and return turn data with automatic corner detection.
@@ -21,25 +25,31 @@ def analyze_laps(fast_csv_path: str, slow_csv_path: str, track_name: str = 'Unkn
 
     # Resample
     fast_r = resample_lap(fast)
-    slow_r = resample_lap(slow)
+    slow_r = resample_lap(slow, track_length=len(fast_r))
 
     # Compute delta
     delta = compute_delta(fast_r, slow_r)
 
     # Detect corners automatically
     corners = detect_corners(fast, slow)
+    tl = len(fast_r)
 
     # Run analysis on each detected corner
     corner_results = []
     for c in corners:
         mask = (fast_r.index >= c['start']) & (fast_r.index < c['end'])
         delta_seg = delta.iloc[mask]
-        corner_results.append(
-            analyze_corner(fast_r.iloc[mask], slow_r.iloc[mask], c['name'], delta_seg)
-        )
+        result = analyze_corner(fast_r.iloc[mask], slow_r.iloc[mask], c['name'], delta_seg)
+        result['apex_pct'] = round(c['apex'] / tl, 4)
+        result['start_pct'] = round(c['start'] / tl, 4)
+        result['end_pct'] = round(c['end'] / tl, 4)
+        corner_results.append(result)
 
     # Extract turn data (sorted by time lost)
-    return extract_turn_data(corner_results)
+    filtered = _DebugList(extract_turn_data(corner_results))
+    filtered._raw_corners = corner_results
+    filtered._track_length = tl
+    return filtered
 
 
 def extract_turn_data(corner_results):
@@ -102,6 +112,9 @@ def _build_turn_data(r):
         'speed_diff': r['speed_diff'],
         'thr_diff': r['thr_diff'],
         'flags': flags,
+        'apex_pct': r.get('apex_pct'),
+        'start_pct': r.get('start_pct'),
+        'end_pct': r.get('end_pct'),
         'braking': {
             'grade': br.get('grade'),
             'zone_type': br.get('zone_type'),
@@ -153,12 +166,23 @@ def _build_turn_data(r):
     }
 
 
-def format_coaching(turn_data_list):
-    """Generate coaching text from extracted turn data."""
+def format_coaching(turn_data_list, track_name='Unknown Track'):
     lines = []
     lines.append("\n========================================")
-    lines.append("  COACHING REPORT — Summit Point Main")
+    lines.append(f"  COACHING REPORT — {track_name}")
     lines.append("========================================\n")
+
+    raw = getattr(turn_data_list, '_raw_corners', None)
+    if raw is not None:
+        lines.append(f"\n--- DEBUG: {len(raw)} corners ---")
+        for r in sorted(raw, key=lambda x: abs(x.get('time_lost', 0)), reverse=True):
+            s = r.get('start_pct', -1)
+            e = r.get('end_pct', -1)
+            a = r.get('apex_pct', -1)
+            lost = r.get('time_lost', 0)
+            mark = "✓" if lost > 0 else "✗"
+            lines.append(f"  [{r['corner']}] a={a:.4f}→e={e:.4f} s={s:.4f} t={lost:+.4f} {mark}")
+        lines.append("---\n")
 
     for d in turn_data_list:
         br = d['braking']

@@ -1,4 +1,4 @@
-import { useLapData } from '../../contexts/LapDataContext'
+import { useLapData, getLapColor } from '../../contexts/LapDataContext'
 import Graph from './Graph'
 
 interface BrakeGraphProps {
@@ -6,15 +6,21 @@ interface BrakeGraphProps {
 }
 
 function BrakeGraph({ onInfoChange }: BrakeGraphProps) {
-  const { fastPoints, slowPoints } = useLapData()
+  const { laps } = useLapData()
+
+  if (laps.length === 0) {
+    return (
+      <div style={{ padding: 16, color: '#888', fontSize: 13 }}>
+        No lap data — use File → Import Lap
+      </div>
+    )
+  }
+
   return (
     <Graph
       label="Brake"
       dataKey="brake"
-      lines={[
-        { points: slowPoints, color: '#0066cc' },
-        { points: fastPoints, color: '#cc0000' },
-      ]}
+      lines={laps.map((l, i) => ({ points: l.points, color: getLapColor(i) }))}
       onInfoChange={onInfoChange}
     />
   )

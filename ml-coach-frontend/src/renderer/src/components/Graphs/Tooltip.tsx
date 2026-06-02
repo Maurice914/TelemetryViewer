@@ -48,7 +48,7 @@ function Tooltip({ clientX, clientY, text, visible }: TooltipProps) {
         fontFamily: 'monospace',
         pointerEvents: 'none',
         whiteSpace: 'nowrap',
-        zIndex: 9999,
+        zIndex: 9999
       }}
     >
       {text}

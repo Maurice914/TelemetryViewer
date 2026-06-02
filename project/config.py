@@ -1,1 +1,1 @@
-TRACK_LENGTH = 3219
+# Track length is now computed from GPS in data.py — no hardcoded values.
