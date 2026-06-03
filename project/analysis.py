@@ -353,17 +353,85 @@ def analyze_line(fast_seg, slow_seg):
         'feedback':    feedback,
     }
 
-def analyze_corner(fast_seg, slow_seg, corner_name, delta_seg):
+def _understeer_at_apex(fast_seg, slow_seg, apex_loc):
+    fast_steer = abs(fast_seg['SteeringWheelAngle'].iloc[apex_loc])
+    slow_steer = abs(slow_seg['SteeringWheelAngle'].iloc[apex_loc])
+    fast_lat = abs(fast_seg['LatAccel'].iloc[apex_loc])
+    slow_lat = abs(slow_seg['LatAccel'].iloc[apex_loc])
+    if fast_lat < 0.1 or slow_lat < 0.1:
+        return False, None
+    fast_ratio = fast_steer / fast_lat
+    slow_ratio = slow_steer / slow_lat
+    if slow_ratio > fast_ratio * 1.3 and slow_lat < fast_lat * 0.95:
+        return True, round(slow_ratio - fast_ratio, 2)
+    return False, None
+
+
+def analyze_corner(fast_seg, slow_seg, corner_name, delta_seg, apex_idx=None):
     time_lost   = delta_seg['time_delta'].iloc[-1] - delta_seg['time_delta'].iloc[0]
     fast_thr_pt = first_above(fast_seg['Throttle'], 0.9)
     slow_thr_pt = first_above(slow_seg['Throttle'], 0.9)
     thr_diff    = round(slow_thr_pt - fast_thr_pt, 0) if (fast_thr_pt and slow_thr_pt) else None
+
+    entry_time_lost = None
+    exit_time_lost = None
+    entry_speed_diff = None
+    apex_speed_diff = None
+    exit_speed_diff = None
+    speed_recovery_rate = None
+    lat_g = None
+    understeer = False
+    understeer_ratio = None
+
+    if apex_idx is not None and apex_idx in fast_seg.index:
+        apex_loc = fast_seg.index.get_loc(apex_idx)
+
+        entry_delta = delta_seg.iloc[:apex_loc + 1]
+        exit_delta = delta_seg.iloc[apex_loc:]
+        entry_time_lost = round(entry_delta['time_delta'].iloc[-1] - entry_delta['time_delta'].iloc[0], 3)
+        exit_time_lost = round(exit_delta['time_delta'].iloc[-1] - exit_delta['time_delta'].iloc[0], 3)
+
+        fast_entry_spd = fast_seg['Speed'].iloc[0] * 3.6
+        slow_entry_spd = slow_seg['Speed'].iloc[0] * 3.6
+        entry_speed_diff = round(slow_entry_spd - fast_entry_spd, 1)
+
+        fast_apex_spd = fast_seg['Speed'].iloc[apex_loc] * 3.6
+        slow_apex_spd = slow_seg['Speed'].iloc[apex_loc] * 3.6
+        apex_speed_diff = round(slow_apex_spd - fast_apex_spd, 1)
+
+        fast_exit_spd = fast_seg['Speed'].iloc[-1] * 3.6
+        slow_exit_spd = slow_seg['Speed'].iloc[-1] * 3.6
+        exit_speed_diff = round(slow_exit_spd - fast_exit_spd, 1)
+
+        exit_dist = fast_seg.index[-1] - apex_idx
+        if exit_dist > 0:
+            fast_recovery = (fast_exit_spd - fast_apex_spd) / exit_dist * 100
+            slow_recovery = (slow_exit_spd - slow_apex_spd) / exit_dist * 100
+            speed_recovery_rate = round(slow_recovery - fast_recovery, 1)
+
+        lat_g = {
+            'fast_peak': round(fast_seg['LatAccel'].max(), 3),
+            'slow_peak': round(slow_seg['LatAccel'].max(), 3),
+            'fast_apex': round(fast_seg['LatAccel'].iloc[apex_loc], 3),
+            'slow_apex': round(slow_seg['LatAccel'].iloc[apex_loc], 3),
+        }
+
+        understeer, understeer_ratio = _understeer_at_apex(fast_seg, slow_seg, apex_loc)
 
     return {
         'corner':     corner_name,
         'time_lost':  round(time_lost, 3),
         'speed_diff': round((slow_seg['Speed'].min() - fast_seg['Speed'].min()) * 3.6, 1),
         'thr_diff':   thr_diff,
+        'entry_time_lost': entry_time_lost,
+        'exit_time_lost': exit_time_lost,
+        'entry_speed_diff': entry_speed_diff,
+        'apex_speed_diff': apex_speed_diff,
+        'exit_speed_diff': exit_speed_diff,
+        'speed_recovery_rate': speed_recovery_rate,
+        'lat_g': lat_g,
+        'understeer': understeer,
+        'understeer_ratio': understeer_ratio,
         'braking':    analyze_braking(fast_seg, slow_seg),
         'steering':   analyze_steering(fast_seg, slow_seg),
         'line':       analyze_line(fast_seg, slow_seg),

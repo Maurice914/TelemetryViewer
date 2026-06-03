@@ -8,6 +8,10 @@ export interface Point {
   rpm: number
   steeringWheelAngle: number
   gear: number
+  yaw: number
+  yawRate: number
+  latAccel: number
+  longAccel: number
   timeDelta: number | null
 }
 
@@ -25,6 +29,10 @@ export function parseCSV(csvText: string): Point[] {
   const rpmIdx = headers.indexOf('rpm')
   const steeringIdx = headers.indexOf('steeringwheelangle')
   const gearIdx = headers.indexOf('gear')
+  const yawIdx = headers.indexOf('yaw')
+  const yawRateIdx = headers.indexOf('yawrate')
+  const latAccelIdx = headers.indexOf('lataccel')
+  const longAccelIdx = headers.indexOf('longaccel')
 
   if (
     latIdx === -1 ||
@@ -49,6 +57,10 @@ export function parseCSV(csvText: string): Point[] {
       const rpm = rpmIdx !== -1 ? parseFloat(cols[rpmIdx]) : 0
       const steeringWheelAngle = steeringIdx !== -1 ? parseFloat(cols[steeringIdx]) : 0
       const gear = gearIdx !== -1 ? parseFloat(cols[gearIdx]) : 0
+      const yaw = yawIdx !== -1 ? parseFloat(cols[yawIdx]) : 0
+      const yawRate = yawRateIdx !== -1 ? parseFloat(cols[yawRateIdx]) : 0
+      const latAccel = latAccelIdx !== -1 ? parseFloat(cols[latAccelIdx]) : 0
+      const longAccel = longAccelIdx !== -1 ? parseFloat(cols[longAccelIdx]) : 0
       return {
         lat,
         lon,
@@ -59,6 +71,10 @@ export function parseCSV(csvText: string): Point[] {
         rpm,
         steeringWheelAngle,
         gear,
+        yaw,
+        yawRate,
+        latAccel,
+        longAccel,
         timeDelta: null
       }
     })

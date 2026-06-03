@@ -8,6 +8,7 @@ interface PixelPoint {
   y: number
   lapDistPct: number
   lapIndex: number
+  yaw: number
 }
 
 interface TrackmapProps {
@@ -39,11 +40,44 @@ function toPixelPoints(
   const offsetX = (drawW - lonRange * scale) / 2
   const offsetY = (drawH - latRange * scale) / 2
 
-  return points.map((p) => {
-    const x = padding + offsetX + (p.lon - minLon) * cosLat * scale
-    const y = padding + offsetY + (latRange - (p.lat - minLat)) * scale
-    return { x, y, lapDistPct: p.lapDistPct, lapIndex }
-  })
+  const pts = points.map((p) => ({
+    x: padding + offsetX + (p.lon - minLon) * cosLat * scale,
+    y: padding + offsetY + (latRange - (p.lat - minLat)) * scale,
+    lapDistPct: p.lapDistPct,
+    yawRate: p.yawRate,
+    latAccel: p.latAccel,
+    lapIndex
+  }))
+
+  const hasYawRate = pts.some((p) => Math.abs(p.yawRate) > 0.0001)
+
+  if (!hasYawRate) {
+    return pts.map((pt, i, arr) => {
+      let dx = 0; let dy = -1
+      if (i < arr.length - 1) { dx = arr[i + 1].x - pt.x; dy = arr[i + 1].y - pt.y }
+      else if (arr.length > 1) { dx = pt.x - arr[i - 1].x; dy = pt.y - arr[i - 1].y }
+      const mag = Math.sqrt(dx * dx + dy * dy)
+      let heading = 0
+      if (mag > 0.001) heading = Math.atan2(dx, -dy) - 0.0035 * pt.latAccel
+      return { x: pt.x, y: pt.y, lapDistPct: pt.lapDistPct, lapIndex, yaw: heading }
+    })
+  }
+
+  const dt = 1 / 60
+  const headings: number[] = new Array(pts.length)
+  if (pts.length > 1) {
+    const dx = pts[1].x - pts[0].x; const dy = pts[1].y - pts[0].y
+    headings[0] = Math.sqrt(dx * dx + dy * dy) > 0.001 ? Math.atan2(dx, -dy) : 0
+  } else {
+    headings[0] = 0
+  }
+  for (let i = 1; i < pts.length; i++) {
+    headings[i] = headings[i - 1] - pts[i - 1].yawRate * dt
+  }
+
+  return pts.map((pt, i) => ({
+    x: pt.x, y: pt.y, lapDistPct: pt.lapDistPct, lapIndex, yaw: headings[i]
+  }))
 }
 
 function Trackmap({ onInfoChange }: TrackmapProps): React.JSX.Element {
@@ -436,15 +470,19 @@ function Trackmap({ onInfoChange }: TrackmapProps): React.JSX.Element {
                 strokeWidth={1.3 / scale}
               />
             ))}
-            {/* Hovered points (one per lap) */}
+            {/* Hovered points (one per lap) with heading lines */}
             {hoveredPoints.map((p, i) => (
-              <circle
-                key={i}
-                cx={p.x}
-                cy={p.y}
-                r={5 / scale}
-                fill={getLapColor(p.lapIndex)}
-              />
+              <g key={i}>
+                <circle cx={p.x} cy={p.y} r={7 / Math.min(3, scale)} fill={getLapColor(p.lapIndex)} />
+                <line
+                  x1={p.x} y1={p.y}
+                  x2={p.x + Math.sin(p.yaw) * 16 / Math.min(2, scale)}
+                  y2={p.y - Math.cos(p.yaw) * 16 / Math.min(2, scale)}
+                  stroke={getLapColor(p.lapIndex)}
+                  strokeWidth={2.5 / Math.min(4, scale)}
+                  strokeLinecap="round"
+                />
+              </g>
             ))}
           </g>
         </svg>

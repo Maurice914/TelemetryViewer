@@ -39,7 +39,7 @@ def analyze_laps(fast_csv_path: str, slow_csv_path: str, track_name: str = 'Unkn
     for c in corners:
         mask = (fast_r.index >= c['start']) & (fast_r.index < c['end'])
         delta_seg = delta.iloc[mask]
-        result = analyze_corner(fast_r.iloc[mask], slow_r.iloc[mask], c['name'], delta_seg)
+        result = analyze_corner(fast_r.iloc[mask], slow_r.iloc[mask], c['name'], delta_seg, apex_idx=c['apex'])
         result['apex_pct'] = round(c['apex'] / tl, 4)
         result['start_pct'] = round(c['start'] / tl, 4)
         result['end_pct'] = round(c['end'] / tl, 4)
@@ -100,11 +100,11 @@ def _build_turn_data(r):
     if st.get('slow_turn_in') is not None and st.get('fast_turn_in') is not None:
         turn_in_diff = round(st['slow_turn_in'] - st['fast_turn_in'], 1)
 
-    # Extract flags
     flags = []
     if br.get('lockup'): flags.append('LOCKUP')
     if br.get('multi_brake'): flags.append('MULTI_BRAKE')
     if st.get('double_turn'): flags.append('DOUBLE_TURN_IN')
+    if r.get('understeer'): flags.append('UNDERSTEER')
 
     return {
         'corner': r['corner'],
@@ -115,6 +115,14 @@ def _build_turn_data(r):
         'apex_pct': r.get('apex_pct'),
         'start_pct': r.get('start_pct'),
         'end_pct': r.get('end_pct'),
+        'entry_time_lost': r.get('entry_time_lost'),
+        'exit_time_lost': r.get('exit_time_lost'),
+        'entry_speed_diff': r.get('entry_speed_diff'),
+        'apex_speed_diff': r.get('apex_speed_diff'),
+        'exit_speed_diff': r.get('exit_speed_diff'),
+        'speed_recovery_rate': r.get('speed_recovery_rate'),
+        'understeer': r.get('understeer', False),
+        'lat_g': r.get('lat_g'),
         'braking': {
             'grade': br.get('grade'),
             'zone_type': br.get('zone_type'),
@@ -181,7 +189,13 @@ def format_coaching(turn_data_list, track_name='Unknown Track'):
             a = r.get('apex_pct', -1)
             lost = r.get('time_lost', 0)
             mark = "✓" if lost > 0 else "✗"
-            lines.append(f"  [{r['corner']}] a={a:.4f}→e={e:.4f} s={s:.4f} t={lost:+.4f} {mark}")
+            et = r.get('entry_time_lost', '')
+            xt = r.get('exit_time_lost', '')
+            es = r.get('entry_speed_diff', '')
+            as_ = r.get('apex_speed_diff', '')
+            xs = r.get('exit_speed_diff', '')
+            under = ' U' if r.get('understeer') else ''
+            lines.append(f"  [{r['corner']}] a={a:.4f}→e={e:.4f} s={s:.4f} t={lost:+.4f}{under} entry_t={et} exit_t={xt} entry_spd={es} apex_spd={as_} exit_spd={xs}")
         lines.append("---\n")
 
     for d in turn_data_list:
@@ -195,11 +209,48 @@ def format_coaching(turn_data_list, track_name='Unknown Track'):
 
         lines.append(f"[ {d['corner']} ] — losing {d['time_lost']:.3f}s{flag_str}")
 
-        # Speed diff
-        if d['speed_diff'] < -3:
-            lines.append(f"  • Apex speed {abs(d['speed_diff']):.1f} km/h lower than reference")
-        elif d['speed_diff'] < -1:
-            lines.append(f"  • Slightly lower apex speed ({abs(d['speed_diff']):.1f} km/h)")
+        # Phase breakdown
+        if d.get('entry_time_lost') is not None and d.get('exit_time_lost') is not None:
+            lines.append(f"  • Entry: {d['entry_time_lost']:.3f}s lost | Exit: {d['exit_time_lost']:.3f}s lost")
+
+        # Speed diffs by phase
+        if d.get('entry_speed_diff') is not None:
+            if d['entry_speed_diff'] < -3:
+                lines.append(f"  • Entry speed {abs(d['entry_speed_diff']):.1f} km/h lower than reference — carrying too little speed")
+            elif d['entry_speed_diff'] > 3:
+                lines.append(f"  • Entry speed {d['entry_speed_diff']:.1f} km/h higher than reference — check braking zone")
+
+        if d.get('apex_speed_diff') is not None:
+            if d['apex_speed_diff'] < -3:
+                lines.append(f"  • Apex speed {abs(d['apex_speed_diff']):.1f} km/h lower than reference — minimum corner speed too low")
+            elif d['apex_speed_diff'] < -1:
+                lines.append(f"  • Slightly lower apex speed ({abs(d['apex_speed_diff']):.1f} km/h)")
+
+        if d.get('exit_speed_diff') is not None:
+            if d['exit_speed_diff'] < -3:
+                lines.append(f"  • Exit speed {abs(d['exit_speed_diff']):.1f} km/h lower than reference — loss carries down straight")
+            elif d['exit_speed_diff'] < -1:
+                lines.append(f"  • Slightly lower exit speed ({abs(d['exit_speed_diff']):.1f} km/h)")
+
+        # Speed recovery rate
+        if d.get('speed_recovery_rate') is not None:
+            if d['speed_recovery_rate'] < -5:
+                lines.append(f"  • Speed recovery after apex {abs(d['speed_recovery_rate']):.1f} km/h/100m slower than reference — get back to throttle sooner")
+            elif d['speed_recovery_rate'] < -2:
+                lines.append(f"  • Speed recovery slightly slow ({abs(d['speed_recovery_rate']):.1f} km/h/100m)")
+
+        # Lateral G
+        lg = d.get('lat_g')
+        if lg:
+            lat_diff = round((lg.get('slow_peak') or 0) - (lg.get('fast_peak') or 0), 2)
+            if lat_diff < -0.15:
+                lines.append(f"  • Peak lateral G {abs(lat_diff):.2f} lower than reference — less cornering grip used")
+            elif lat_diff > 0.15:
+                lines.append(f"  • Peak lateral G {lat_diff:.2f} higher than reference — more cornering grip, but check exit speed")
+
+        # Understeer
+        if d.get('understeer'):
+            lines.append(f"  • Understeer at apex — more steering input produces less rotation than reference")
 
         # Throttle diff
         if d['thr_diff'] and d['thr_diff'] > 10:

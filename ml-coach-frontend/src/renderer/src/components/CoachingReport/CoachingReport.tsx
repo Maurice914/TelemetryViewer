@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { useLapData } from '../../contexts/LapDataContext'
 
 interface CoachingReportProps {
@@ -18,6 +18,15 @@ function CoachingReport({ onInfoChange }: CoachingReportProps) {
   const [showAll, setShowAll] = useState(false)
   const [showCoaching, setShowCoaching] = useState(false)
   const textRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    return () => {
+      setCornerHighlight(null)
+      setAllCornerHighlights([])
+      setSelection(null)
+      setHoveredLapPct(null)
+    }
+  }, [])
 
   async function handleAnalyze() {
     if (laps.length < 2) return
