@@ -4,6 +4,10 @@ import { electronAPI } from '@electron-toolkit/preload'
 // Custom APIs for renderer
 const api = {
   readFile: (filePath: string) => ipcRenderer.invoke('read-file', filePath),
+  saveTrackOverlay: (trackName: string, svgContent: string, overlay: { scale: number; offsetX: number; offsetY: number }) =>
+    ipcRenderer.invoke('save-track-overlay', trackName, svgContent, overlay),
+  listTracks: () => ipcRenderer.invoke('list-tracks'),
+  loadTrackOverlay: (trackName: string) => ipcRenderer.invoke('load-track-overlay', trackName),
   runCoaching: (data: { fastPoints: unknown[]; slowPoints: unknown[] }) =>
     ipcRenderer.invoke('run-coaching', data)
 }

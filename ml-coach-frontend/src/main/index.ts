@@ -1,6 +1,6 @@
 import { app, shell, BrowserWindow, ipcMain } from 'electron'
 import { join } from 'path'
-import { readFileSync, writeFileSync, unlinkSync } from 'fs'
+import { readFileSync, writeFileSync, unlinkSync, mkdirSync, readdirSync, existsSync } from 'fs'
 import { execFile } from 'child_process'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 
@@ -81,6 +81,29 @@ app.whenReady().then(() => {
     }
 
     return JSON.parse(result)
+  })
+
+  const tracksDir = join(app.getAppPath(), 'src', 'tracks')
+
+  ipcMain.handle('save-track-overlay', (_, trackName: string, svgContent: string, overlay: { scale: number; offsetX: number; offsetY: number }) => {
+    const trackDir = join(tracksDir, trackName, 'svg')
+    mkdirSync(trackDir, { recursive: true })
+    writeFileSync(join(trackDir, 'track.svg'), svgContent, 'utf-8')
+    writeFileSync(join(trackDir, 'overlay.json'), JSON.stringify(overlay), 'utf-8')
+  })
+
+  ipcMain.handle('list-tracks', () => {
+    if (!existsSync(tracksDir)) return []
+    return readdirSync(tracksDir, { withFileTypes: true })
+      .filter((d) => d.isDirectory())
+      .map((d) => d.name)
+  })
+
+  ipcMain.handle('load-track-overlay', (_, trackName: string) => {
+    const trackDir = join(tracksDir, trackName, 'svg')
+    const svgContent = readFileSync(join(trackDir, 'track.svg'), 'utf-8')
+    const overlay = JSON.parse(readFileSync(join(trackDir, 'overlay.json'), 'utf-8'))
+    return { svgContent, overlay }
   })
 
   createWindow()

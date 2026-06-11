@@ -1,5 +1,6 @@
 import { useRef, useState, useEffect } from 'react'
 import { useLapData, Point } from '../../contexts/LapDataContext'
+import { useGraphSelection } from '../../hooks/useGraphSelection'
 import Tooltip from './Tooltip'
 
 type DataKey = 'throttle' | 'brake' | 'speed' | 'rpm' | 'steeringWheelAngle' | 'gear'
@@ -51,22 +52,14 @@ function formatTooltipVal(dataKey: DataKey, val: number): string {
 }
 
 function Graph({ label, dataKey, lines, centerBaseline, onInfoChange }: GraphProps) {
-  const {
-    hoveredLapPct,
-    setHoveredLapPct,
-    selection,
-    setSelection,
-    dragSelection,
-    setDragSelection
-  } = useLapData()
+  const { hoveredLapPct, setHoveredLapPct, selection } = useLapData()
   const svgRef = useRef<SVGSVGElement>(null)
   const getVal = (p: Point) => p[dataKey as keyof Point] ?? 0
   const [hoveredInfo, setHoveredInfo] = useState<{ point: Point; lineIndex: number } | null>(null)
   const [isLocalHover, setIsLocalHover] = useState(false)
-  const [isSelecting, setIsSelecting] = useState(false)
-  const [selectStart, setSelectStart] = useState(0)
-  const [selectEnd, setSelectEnd] = useState(0)
   const [mousePos, setMousePos] = useState({ clientX: 0, clientY: 0 })
+
+  const { isSelecting, selectStart, selectEnd, getPctFromMouse, handleMouseDown: selectionMouseDown, trySelectInMove, handleMouseUp: selectionMouseUp, handleKeyDown: selectionKeyDown, getSelectionRect } = useGraphSelection(svgRef)
 
   const allVals = lines.flatMap((l) => l.points.map(getVal))
   const minVal = Math.min(...allVals)
@@ -101,42 +94,16 @@ function Graph({ label, dataKey, lines, centerBaseline, onInfoChange }: GraphPro
     onInfoChange?.(headerText)
   }, [headerText, onInfoChange])
 
-  function getPctFromMouse(e: React.MouseEvent<SVGSVGElement>): number | null {
-    const rect = svgRef.current?.getBoundingClientRect()
-    if (!rect) return null
-    const x = e.clientX - rect.left
-    const width = rect.width
-    const localPct = x / width
-
-    if (selection) {
-      return selection.startPct + localPct * (selection.endPct - selection.startPct)
-    }
-    return localPct
-  }
-
   function handleMouseDown(e: React.MouseEvent<SVGSVGElement>) {
-    const pct = getPctFromMouse(e)
-    if (pct === null) return
-    setSelectStart(pct)
-    setSelectEnd(pct)
-    setIsSelecting(true)
-    setDragSelection({ startPct: pct, endPct: pct })
+    selectionMouseDown(e)
   }
 
   function handleMouseMove(e: React.MouseEvent<SVGSVGElement>) {
+    setMousePos({ clientX: e.clientX, clientY: e.clientY })
+    if (trySelectInMove(e)) return
+
     const pct = getPctFromMouse(e)
     if (pct === null) return
-    setMousePos({ clientX: e.clientX, clientY: e.clientY })
-
-    if (isSelecting) {
-      setSelectEnd(pct)
-      setDragSelection({
-        startPct: Math.min(selectStart, pct),
-        endPct: Math.max(selectStart, pct)
-      })
-      return
-    }
-
     if (pct >= 0 && pct <= 1) {
       setIsLocalHover(true)
       setHoveredLapPct(pct)
@@ -162,14 +129,7 @@ function Graph({ label, dataKey, lines, centerBaseline, onInfoChange }: GraphPro
   }
 
   function handleMouseUp() {
-    if (!isSelecting) return
-    setIsSelecting(false)
-    setDragSelection(null)
-    const start = Math.min(selectStart, selectEnd)
-    const end = Math.max(selectStart, selectEnd)
-    if (end - start > 0.01) {
-      setSelection({ startPct: start, endPct: end })
-    }
+    selectionMouseUp()
   }
 
   function handleMouseLeave() {
@@ -181,42 +141,7 @@ function Graph({ label, dataKey, lines, centerBaseline, onInfoChange }: GraphPro
   }
 
   function handleKeyDown(e: React.KeyboardEvent) {
-    if (e.key === 'Escape') {
-      setSelection(null)
-      setDragSelection(null)
-      setIsSelecting(false)
-    }
-  }
-
-  function getSelectionRect() {
-    const sel = dragSelection
-    if (!sel) return null
-    const svg = svgRef.current
-    if (!svg) return null
-    const width = svg.clientWidth
-    const height = svg.clientHeight
-
-    let start = sel.startPct
-    let end = sel.endPct
-    if (selection) {
-      const range = selection.endPct - selection.startPct
-      start = (sel.startPct - selection.startPct) / range
-      end = (sel.endPct - selection.startPct) / range
-    }
-
-    const min = Math.min(start, end)
-    const max = Math.max(start, end)
-
-    return (
-      <rect
-        x={min * width}
-        y={0}
-        width={(max - min) * width}
-        height={height}
-        fill="blue"
-        opacity={0.15}
-      />
-    )
+    selectionKeyDown(e)
   }
 
   function pointsToPolyline(points: Point[]): string {

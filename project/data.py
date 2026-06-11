@@ -39,12 +39,15 @@ def resample_lap(df, track_length=None):
     if track_length is None:
         track_length = int(df.attrs.get('track_length', len(df)))
     grid = np.arange(0, track_length, 1)
+    gear_raw = np.round(np.interp(grid, df['distance_m'], df['Gear'])).astype(int)
     cols = ['time_s', 'Speed', 'Brake', 'Throttle', 'LongAccel',
             'SteeringWheelAngle', 'LatAccel', 'Lat', 'Lon']
-    return pd.DataFrame(
+    res = pd.DataFrame(
         {col: np.interp(grid, df['distance_m'], df[col]) for col in cols},
         index=grid
     )
+    res['Gear'] = gear_raw
+    return res
 
 
 def compute_delta(fast, slow):

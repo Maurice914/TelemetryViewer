@@ -3,6 +3,11 @@ from analysis import analyze_corner
 from detection import detect_corners
 
 
+def _diff(a, b, decimals=None):
+    if a is None or b is None: return None
+    d = a - b
+    return round(d, decimals) if decimals is not None else d
+
 class _DebugList(list):
     pass
 
@@ -67,38 +72,15 @@ def _build_turn_data(r):
     st = r['steering']
     ln = r['line']
 
-    # Compute diffs
-    bp_diff = None
-    if br.get('slow_bp') is not None and br.get('fast_bp') is not None:
-        bp_diff = round(br['slow_bp'] - br['fast_bp'], 1)
-
-    hold_diff = None
-    if br.get('slow_hold') is not None and br.get('fast_hold') is not None:
-        hold_diff = br['slow_hold'] - br['fast_hold']
-
-    release_diff = None
-    if br.get('slow_release') is not None and br.get('fast_release') is not None:
-        release_diff = br['slow_release'] - br['fast_release']
-
-    dead_diff = None
-    if br.get('slow_dead') is not None and br.get('fast_dead') is not None:
-        dead_diff = round(br['slow_dead'] - br['fast_dead'], 1)
-
-    overlap_diff = br.get('s_overlap', 0) - br.get('f_overlap', 0)
-
-    shape_diff = None
-    if br.get('slow_shape') is not None and br.get('fast_shape') is not None:
-        shape_diff = round(br['slow_shape'] - br['fast_shape'], 3)
-
-    peak_diff = round(br['slow_peak'] - br['fast_peak'], 3) if br.get('slow_peak') and br.get('fast_peak') else None
-
-    max_diff = None
-    if st.get('slow_max') is not None and st.get('fast_max') is not None:
-        max_diff = round(st['slow_max'] - st['fast_max'], 3)
-
-    turn_in_diff = None
-    if st.get('slow_turn_in') is not None and st.get('fast_turn_in') is not None:
-        turn_in_diff = round(st['slow_turn_in'] - st['fast_turn_in'], 1)
+    bp_diff     = _diff(br.get('slow_bp'), br.get('fast_bp'), 1)
+    hold_diff   = _diff(br.get('slow_hold'), br.get('fast_hold'))
+    release_diff = _diff(br.get('slow_release'), br.get('fast_release'))
+    dead_diff   = _diff(br.get('slow_dead'), br.get('fast_dead'), 1)
+    overlap_diff = (br.get('s_overlap', 0) or 0) - (br.get('f_overlap', 0) or 0)
+    shape_diff  = _diff(br.get('slow_shape'), br.get('fast_shape'), 3)
+    peak_diff   = _diff(br.get('slow_peak'), br.get('fast_peak'), 3)
+    max_diff    = _diff(st.get('slow_max'), st.get('fast_max'), 3)
+    turn_in_diff = _diff(st.get('slow_turn_in'), st.get('fast_turn_in'), 1)
 
     flags = []
     if br.get('lockup'): flags.append('LOCKUP')
@@ -123,6 +105,7 @@ def _build_turn_data(r):
         'speed_recovery_rate': r.get('speed_recovery_rate'),
         'understeer': r.get('understeer', False),
         'lat_g': r.get('lat_g'),
+        'gear': r.get('gear'),
         'braking': {
             'grade': br.get('grade'),
             'zone_type': br.get('zone_type'),
@@ -151,6 +134,7 @@ def _build_turn_data(r):
             'n_apps': br.get('n_apps', 0),
             'lockup': br.get('lockup', False),
             'multi_brake': br.get('multi_brake', False),
+            'feedback': br.get('feedback', []),
         },
         'steering': {
             'grade': st.get('grade'),
@@ -162,6 +146,7 @@ def _build_turn_data(r):
             'turn_in_diff': turn_in_diff,
             'double_turn': st.get('double_turn', False),
             'fast_double_turn': st.get('fast_double_turn', False),
+            'feedback': st.get('feedback', []),
         },
         'line': {
             'grade': ln.get('grade'),
@@ -170,6 +155,7 @@ def _build_turn_data(r):
             'exit_gap': ln.get('exit_gap'),
             'max_gap': ln.get('max_gap'),
             'worst_phase': ln.get('worst_phase'),
+            'feedback': ln.get('feedback', []),
         }
     }
 
@@ -258,6 +244,12 @@ def format_coaching(turn_data_list, track_name='Unknown Track'):
         elif d['thr_diff'] and d['thr_diff'] < -10:
             lines.append(f"  • Full throttle {abs(d['thr_diff']):.0f}m earlier than reference — good exit")
 
+        # Gear
+        gear = d.get('gear')
+        if gear:
+            for fb in _generate_gear_text(gear):
+                lines.append(f"    -> {fb}")
+
         # Braking
         lines.append(f"  • Braking [{br['zone_type']}] grade: {br['grade']}  "
                      f"peak: {br['slow_peak']} vs {br['fast_peak']} ref | "
@@ -284,155 +276,38 @@ def format_coaching(turn_data_list, track_name='Unknown Track'):
 
 
 def _generate_braking_text(br):
-    feedback = []
-
-    if br.get('zone_type') == 'none':
-        if br.get('slow_peak', 0) > 0.05:
-            feedback.append('Unnecessary braking — reference does not brake here')
-        return feedback
-
-    # Peak pressure
-    if br.get('peak_diff') is not None:
-        if br['peak_diff'] < -0.15:
-            feedback.append(f'Underbraking — peak pressure {br["slow_peak"]:.2f} vs {br["fast_peak"]:.2f} ref')
-        elif br['peak_diff'] < -0.08:
-            feedback.append(f'Slightly less peak pressure ({br["slow_peak"]:.2f} vs {br["fast_peak"]:.2f})')
-
-    # Brake point
-    if br.get('bp_diff') is not None:
-        if br['zone_type'] in ('heavy', 'medium'):
-            if br['bp_diff'] < -15:
-                feedback.append(f'Braking {abs(br["bp_diff"]):.0f}m earlier than reference — brake later')
-            elif br['bp_diff'] < -8:
-                feedback.append(f'Brake point {abs(br["bp_diff"]):.0f}m early — small gain available')
-            elif br['bp_diff'] > 10:
-                feedback.append(f'Braking {br["bp_diff"]:.0f}m later than reference — check entry speed')
-
-    # Hold
-    if br.get('hold_diff') is not None:
-        if br['hold_diff'] > 15:
-            feedback.append(f'Holding peak pressure {br["hold_diff"]:.0f}m longer — compressing trail brake phase')
-        elif br['hold_diff'] < -10 and (br.get('fast_hold') or 0) > 5:
-            feedback.append('Releasing peak pressure earlier than reference — hold longer before trailing off')
-
-    # Release shape
-    if br.get('shape_diff') is not None:
-        if (br.get('fast_shape') or 0) > 0.05 and (br.get('slow_shape') or 0) < -0.05:
-            feedback.append(f'Release too convex — dropping pressure too early ({br["slow_shape"]:.2f} vs {br["fast_shape"]:.2f} ref)')
-        elif br['shape_diff'] < -0.12:
-            feedback.append('Release shape slightly early vs reference')
-
-    # Trail braking overlap
-    if br.get('fast_overlap', 0) > 5 and (br.get('slow_overlap') or 0) < 3:
-        feedback.append(f'No trail braking overlap — reference uses {br["fast_overlap"]}m. Apply light brake through turn in')
-    elif br.get('overlap_diff', 0) < -8:
-        feedback.append(f'Less trail braking than reference ({br["slow_overlap"]}m vs {br["fast_overlap"]}m)')
-
-    # Dead zone
-    if br.get('dead_diff') is not None:
-        if br['dead_diff'] > 15:
-            feedback.append(f'Slow throttle pickup — {br["slow_dead"]:.0f}m dead zone vs {br["fast_dead"]:.0f}m ref')
-        elif br['dead_diff'] > 8:
-            feedback.append(f'Slightly slow to throttle after braking ({br["slow_dead"]:.0f}m vs {br["fast_dead"]:.0f}m)')
-
-    # Flags
-    if br.get('lockup'):
-        feedback.append('Possible lockup — sudden pressure spike detected. Brake more smoothly')
-    if br.get('multi_brake'):
-        feedback.append(f"Multiple brake applications ({br['n_apps']}x) — pumping brakes or mid-corner correction")
-
-    # Zone mismatch
-    if br.get('slow_zone') and br.get('zone_type') and br['slow_zone'] != br['zone_type']:
-        feedback.append(
-            f'Braking intensity mismatch — reference is {br["zone_type"]}, driver is {br["slow_zone"]}. '
-            + ('Underbraking on entry' if br['slow_zone'] in ('light', 'none') else 'Overbraking vs reference')
-        )
-
-    if not feedback:
-        feedback.append('Braking matches reference well')
-
-    return feedback
+    return list(br.get('feedback', []))
 
 
 def _generate_steering_text(st):
+    return list(st.get('feedback', []))
+
+
+def _generate_gear_text(gear):
     feedback = []
 
-    if not st.get('fast_max') or not st.get('slow_max'):
-        return ['Not enough steering data']
+    fast_apex = gear.get('fast_apex')
+    slow_apex = gear.get('slow_apex')
+    if fast_apex is not None and slow_apex is not None and slow_apex != fast_apex:
+        if slow_apex < fast_apex:
+            feedback.append(f"Lower gear at apex (gear {slow_apex} vs {fast_apex} ref) — higher RPM but may cost exit speed")
+        else:
+            feedback.append(f"Higher gear at apex (gear {slow_apex} vs {fast_apex} ref) — saves a shift but check exit torque")
 
-    # Max steering
-    if st.get('max_diff') is not None:
-        if st['max_diff'] > 0.15:
-            feedback.append(f'Too much steering — {st["slow_max"]:.2f} vs {st["fast_max"]:.2f} ref. Early apex likely')
-        elif st['max_diff'] > 0.08:
-            feedback.append(f'Slightly more steering than reference ({st["slow_max"]:.2f} vs {st["fast_max"]:.2f})')
-        elif st['max_diff'] < -0.15:
-            feedback.append(f'Too little steering — {st["slow_max"]:.2f} vs {st["fast_max"]:.2f} ref. Missing apex')
-        elif st['max_diff'] < -0.08:
-            feedback.append('Slightly less steering than reference — may be missing apex')
+    min_diff = gear.get('slow_min') - gear.get('fast_min') if gear.get('fast_min') is not None else 0
+    if min_diff < 0:
+        feedback.append(f"Lower minimum gear than reference (gear {gear['slow_min']} vs {gear['fast_min']} ref) — may indicate over-slowing")
 
-    # Turn in
-    if st.get('turn_in_diff') is not None:
-        if st['turn_in_diff'] < -15:
-            feedback.append(f'Turning in {abs(st["turn_in_diff"]):.0f}m early — leads to early apex and running wide on exit')
-        elif st['turn_in_diff'] < -8:
-            feedback.append(f'Turn in slightly early ({abs(st["turn_in_diff"]):.0f}m) — delay a little')
-        elif st['turn_in_diff'] > 15:
-            feedback.append(f'Turning in {st["turn_in_diff"]:.0f}m late — may be causing tighter line than optimal')
-
-    # Double turn
-    if st.get('double_turn') and not st.get('fast_double_turn'):
-        feedback.append(
-            'Double turn in detected — steering builds, drops, then increases again. '
-            'Strong sign of early apex. Delay turn in and target a later apex'
-        )
-    elif st.get('double_turn') and st.get('fast_double_turn'):
-        feedback.append('Double turn in on both laps — characteristic of this corner, review line')
+    fast_ch = gear.get('fast_changes', 0)
+    slow_ch = gear.get('slow_changes', 0)
+    if slow_ch > fast_ch + 1:
+        feedback.append(f"More gear changes than reference ({slow_ch} vs {fast_ch}) — unsettled through this section")
 
     if not feedback:
-        feedback.append('Steering matches reference well')
+        feedback.append("Gear selection matches reference")
 
     return feedback
 
 
 def _generate_line_text(ln):
-    feedback = []
-
-    if not ln.get('entry_gap'):
-        return ['Not enough position data']
-
-    # Max gap
-    if ln.get('max_gap', 0) > 3.0:
-        feedback.append(f'Large line deviation — {ln["max_gap"]:.1f}m off reference at {ln["worst_phase"]}')
-    elif ln.get('max_gap', 0) > 1.5:
-        feedback.append(f'Moderate line deviation — {ln["max_gap"]:.1f}m off reference at {ln["worst_phase"]}')
-
-    # Entry
-    if ln.get('entry_gap', 0) > 2.0:
-        feedback.append(f'Entry line {ln["entry_gap"]:.1f}m from reference — check positioning on approach')
-    elif ln.get('entry_gap', 0) > 1.0:
-        feedback.append(f'Entry line slightly off reference ({ln["entry_gap"]:.1f}m)')
-
-    # Apex
-    if ln.get('apex_gap', 0) > 2.0:
-        feedback.append(
-            f'Apex {ln["apex_gap"]:.1f}m from reference — '
-            + ('late apex — losing exit speed' if ln.get('exit_gap', 0) < ln.get('entry_gap', 0) else 'early apex — running wide on exit')
-        )
-    elif ln.get('apex_gap', 0) > 1.0:
-        feedback.append(f'Apex position {ln["apex_gap"]:.1f}m off reference')
-
-    # Exit
-    if ln.get('exit_gap', 0) > 2.0:
-        feedback.append(f'Exit line {ln["exit_gap"]:.1f}m from reference — track out further on exit')
-    elif ln.get('exit_gap', 0) > 1.0:
-        feedback.append(f'Exit line slightly tight ({ln["exit_gap"]:.1f}m) — use more road')
-
-    # Offset throughout
-    if ln.get('entry_gap', 0) > 1.0 and ln.get('apex_gap', 0) > 1.0 and ln.get('exit_gap', 0) > 1.0:
-        feedback.append(f'Line offset throughout — entry: {ln["entry_gap"]:.1f}m, apex: {ln["apex_gap"]:.1f}m, exit: {ln["exit_gap"]:.1f}m')
-
-    if not feedback:
-        feedback.append(f'Line matches reference well (max deviation {ln["max_gap"]:.1f}m)')
-
-    return feedback
+    return list(ln.get('feedback', []))

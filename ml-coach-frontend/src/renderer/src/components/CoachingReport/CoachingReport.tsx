@@ -64,26 +64,17 @@ function CoachingReport({ onInfoChange }: CoachingReportProps) {
     }
   }
 
-  function handleToggleAll() {
-    if (!showAll) {
-      const valid = corners.filter((c) => c.start_pct != null && c.end_pct != null)
+  function handleToggle(type: 'all' | 'coaching') {
+    const isOn = type === 'all' ? showAll : showCoaching
+    const source = type === 'all' ? corners : coachingCorners
+    if (!isOn) {
+      const valid = source.filter((c) => c.start_pct != null && c.end_pct != null)
       setAllCornerHighlights(valid.map((c, i) => ({ startPct: c.start_pct!, endPct: c.end_pct!, idx: i })))
-      setShowCoaching(false)
+      if (type === 'all') { setShowCoaching(false) } else { setShowAll(false) }
     } else {
       setAllCornerHighlights([])
     }
-    setShowAll(!showAll)
-  }
-
-  function handleToggleCoaching() {
-    if (!showCoaching) {
-      const valid = coachingCorners.filter((c) => c.start_pct != null && c.end_pct != null)
-      setAllCornerHighlights(valid.map((c, i) => ({ startPct: c.start_pct!, endPct: c.end_pct!, idx: i })))
-      setShowAll(false)
-    } else {
-      setAllCornerHighlights([])
-    }
-    setShowCoaching(!showCoaching)
+    if (type === 'all') { setShowAll(!isOn) } else { setShowCoaching(!isOn) }
   }
 
   function handleCornerClick(i: number) {
@@ -141,7 +132,7 @@ function CoachingReport({ onInfoChange }: CoachingReportProps) {
         {corners.length > 0 && (
           <>
             <button
-              onClick={handleToggleAll}
+              onClick={() => handleToggle('all')}
               style={{
                 fontSize: 12,
                 padding: '2px 8px',
@@ -156,7 +147,7 @@ function CoachingReport({ onInfoChange }: CoachingReportProps) {
               {showAll ? '● All corners on map' : '○ Show all corners'}
             </button>
             <button
-              onClick={handleToggleCoaching}
+              onClick={() => handleToggle('coaching')}
               style={{
                 fontSize: 12,
                 padding: '2px 8px',

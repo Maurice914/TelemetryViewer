@@ -77,6 +77,23 @@ electron.app.whenReady().then(() => {
     }
     return JSON.parse(result);
   });
+  const tracksDir = path.join(electron.app.getAppPath(), "src", "tracks");
+  electron.ipcMain.handle("save-track-overlay", (_, trackName, svgContent, overlay) => {
+    const trackDir = path.join(tracksDir, trackName, "svg");
+    fs.mkdirSync(trackDir, { recursive: true });
+    fs.writeFileSync(path.join(trackDir, "track.svg"), svgContent, "utf-8");
+    fs.writeFileSync(path.join(trackDir, "overlay.json"), JSON.stringify(overlay), "utf-8");
+  });
+  electron.ipcMain.handle("list-tracks", () => {
+    if (!fs.existsSync(tracksDir)) return [];
+    return fs.readdirSync(tracksDir, { withFileTypes: true }).filter((d) => d.isDirectory()).map((d) => d.name);
+  });
+  electron.ipcMain.handle("load-track-overlay", (_, trackName) => {
+    const trackDir = path.join(tracksDir, trackName, "svg");
+    const svgContent = fs.readFileSync(path.join(trackDir, "track.svg"), "utf-8");
+    const overlay = JSON.parse(fs.readFileSync(path.join(trackDir, "overlay.json"), "utf-8"));
+    return { svgContent, overlay };
+  });
   createWindow();
   electron.app.on("activate", function() {
     if (electron.BrowserWindow.getAllWindows().length === 0) createWindow();

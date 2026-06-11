@@ -21,11 +21,20 @@ export interface CoachingResult {
   track_length: number
 }
 
+interface TrackOverlay {
+  scale: number
+  offsetX: number
+  offsetY: number
+}
+
 declare global {
   interface Window {
     electron: ElectronAPI
     api: {
       readFile: (filePath: string) => Promise<string>
+      saveTrackOverlay: (trackName: string, svgContent: string, overlay: TrackOverlay) => Promise<void>
+      listTracks: () => Promise<string[]>
+      loadTrackOverlay: (trackName: string) => Promise<{ svgContent: string; overlay: TrackOverlay }>
       runCoaching: (data: {
         fastPoints: { lapDistPct: number; speed: number; brake: number; throttle: number; steeringWheelAngle: number; rpm: number; gear: number; lat: number; lon: number }[]
         slowPoints: { lapDistPct: number; speed: number; brake: number; throttle: number; steeringWheelAngle: number; rpm: number; gear: number; lat: number; lon: number }[]

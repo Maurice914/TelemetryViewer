@@ -1,6 +1,36 @@
 import numpy as np
 from helpers import grade, first_above, smooth, classify_zone, release_shape
 
+def _phases(brake, brake_thresh, noise_thresh):
+    if brake.max() < brake_thresh: return None, None, None, None
+    peak_idx = brake.idxmax()
+    peak_val = brake.max()
+    hold     = len(brake[brake >= peak_val * 0.90])
+    after    = brake.loc[peak_idx:]
+    zeros    = after[after <= noise_thresh]
+    zero_idx = zeros.index[0] if len(zeros) > 0 else None
+    release  = zero_idx - peak_idx if zero_idx else 0
+    return peak_idx, hold, zero_idx, release
+
+def _dead_zone(seg, zero_idx):
+    if zero_idx is None: return None
+    thr = seg['Throttle'].loc[zero_idx:]
+    hit = thr[thr > 0.1]
+    return round(hit.index[0] - zero_idx, 1) if len(hit) > 0 else None
+
+def _overlap(seg, zero_idx, peakIdx, noise_thresh):
+    if zero_idx is None or peakIdx is None: return 0
+    windowSegment = seg.loc[peakIdx:zero_idx]
+    smoothBrakeWindow = smooth(windowSegment['Brake'], threshold=noise_thresh)
+    return int(((smoothBrakeWindow > 0.05) & (windowSegment['SteeringWheelAngle'].abs() > 0.05)).sum())
+
+def _lockup(brake):
+    grad = np.diff(brake.values)
+    for i in np.where(grad < -0.15)[0]:
+        if i + 5 < len(brake) and brake.values[i+5] > brake.values[i] * 0.8:
+            return True
+    return False
+
 def analyze_braking(fast_seg, slow_seg):
     zone_type, brake_thresh, noise_thresh = classify_zone(fast_seg)
     feedback = []
@@ -34,59 +64,29 @@ def analyze_braking(fast_seg, slow_seg):
             'n_apps':       0,
         }
 
-    fb = smooth(fast_seg['Brake'], threshold=noise_thresh)
-    sb = smooth(slow_seg['Brake'], threshold=noise_thresh)
+    smoothFastBrake = smooth(fast_seg['Brake'], threshold=noise_thresh)
+    smoothSlowBrake = smooth(slow_seg['Brake'], threshold=noise_thresh)
 
-    fast_peak = fb.max()
-    slow_peak = sb.max()
-    fast_bp   = first_above(fb, brake_thresh)
-    slow_bp   = first_above(sb, brake_thresh)
+    fast_peak = smoothFastBrake.max()
+    slow_peak = smoothSlowBrake.max()
+    fast_bp   = first_above(smoothFastBrake, brake_thresh)
+    slow_bp   = first_above(smoothSlowBrake, brake_thresh)
 
-    def phases(brake):
-        if brake.max() < brake_thresh: return None, None, None, None
-        peak_idx = brake.idxmax()
-        peak_val = brake.max()
-        hold     = len(brake[brake >= peak_val * 0.90])
-        after    = brake.loc[peak_idx:]
-        zeros    = after[after <= noise_thresh]
-        zero_idx = zeros.index[0] if len(zeros) > 0 else None
-        release  = zero_idx - peak_idx if zero_idx else 0
-        return peak_idx, hold, zero_idx, release
+    fastPeakIdx, fastHoldLen, fastZeroIdx, fastReleaseLen = _phases(smoothFastBrake, brake_thresh, noise_thresh)
+    slowPeakIdx, slowHoldLen, slowZeroIdx, slowReleaseLen = _phases(smoothSlowBrake, brake_thresh, noise_thresh)
 
-    fp_idx, f_hold, f_zero, f_release = phases(fb)
-    sp_idx, s_hold, s_zero, s_release = phases(sb)
+    fastDeadZone = _dead_zone(fast_seg, fastZeroIdx)
+    slowDeadZone = _dead_zone(slow_seg, slowZeroIdx)
 
-    def dead_zone(seg, zero_idx):
-        if zero_idx is None: return None
-        thr = seg['Throttle'].loc[zero_idx:]
-        hit = thr[thr > 0.1]
-        return round(hit.index[0] - zero_idx, 1) if len(hit) > 0 else None
+    fastTrailOverlap = _overlap(fast_seg, fastZeroIdx, fastPeakIdx, noise_thresh)
+    slowTrailOverlap = _overlap(slow_seg, slowZeroIdx, slowPeakIdx, noise_thresh)
 
-    f_dead = dead_zone(fast_seg, f_zero)
-    s_dead = dead_zone(slow_seg, s_zero)
+    aboveBrakeThresh       = (smoothSlowBrake > brake_thresh).astype(int)
+    numBrakeApps      = int((aboveBrakeThresh.diff().fillna(0) == 1).sum())
+    multi_brake = numBrakeApps > 1
 
-    def overlap(seg, zero_idx):
-        if zero_idx is None or fp_idx is None: return 0
-        w = seg.loc[fp_idx:zero_idx]
-        b = smooth(w['Brake'], threshold=noise_thresh)
-        return int(((b > 0.05) & (w['SteeringWheelAngle'].abs() > 0.05)).sum())
-
-    f_overlap = overlap(fast_seg, f_zero)
-    s_overlap = overlap(slow_seg, s_zero)
-
-    def lockup(brake):
-        grad = np.diff(brake.values)
-        for i in np.where(grad < -0.15)[0]:
-            if i + 5 < len(brake) and brake.values[i+5] > brake.values[i] * 0.8:
-                return True
-        return False
-
-    above       = (sb > brake_thresh).astype(int)
-    n_apps      = int((above.diff().fillna(0) == 1).sum())
-    multi_brake = n_apps > 1
-
-    f_shape = release_shape(fb, fp_idx, f_zero)
-    s_shape = release_shape(sb, sp_idx, s_zero)
+    fastReleaseShape = release_shape(smoothFastBrake, fastPeakIdx, fastZeroIdx)
+    slowReleaseShape = release_shape(smoothSlowBrake, slowPeakIdx, slowZeroIdx)
 
     slow_zone, _, _ = classify_zone(slow_seg)
     if slow_zone != zone_type:
@@ -117,45 +117,45 @@ def analyze_braking(fast_seg, slow_seg):
         feedback.append(f'Slightly less peak pressure ({slow_peak:.2f} vs {fast_peak:.2f})')
         issues += 0.5
 
-    if f_hold and s_hold:
-        hold_diff = s_hold - f_hold
+    if fastHoldLen and slowHoldLen:
+        hold_diff = slowHoldLen - fastHoldLen
         if hold_diff > 15:
             feedback.append(f'Holding peak pressure {hold_diff:.0f}m longer — compressing trail brake phase')
             issues += 1
-        elif hold_diff < -10 and f_hold > 5:
+        elif hold_diff < -10 and fastHoldLen > 5:
             feedback.append('Releasing peak pressure earlier than reference — hold longer before trailing off')
             issues += 0.5
 
-    if f_shape is not None and s_shape is not None:
-        if f_shape > 0.05 and s_shape < -0.05:
-            feedback.append(f'Release too convex — dropping pressure too early ({s_shape:.2f} vs {f_shape:.2f} ref)')
+    if fastReleaseShape is not None and slowReleaseShape is not None:
+        if fastReleaseShape > 0.05 and slowReleaseShape < -0.05:
+            feedback.append(f'Release too convex — dropping pressure too early ({slowReleaseShape:.2f} vs {fastReleaseShape:.2f} ref)')
             issues += 1
-        elif (s_shape - f_shape) < -0.12:
+        elif (slowReleaseShape - fastReleaseShape) < -0.12:
             feedback.append('Release shape slightly early vs reference')
             issues += 0.5
 
-    if f_overlap > 5 and s_overlap < 3:
-        feedback.append(f'No trail braking overlap — reference uses {f_overlap}m. Apply light brake through turn in')
+    if fastTrailOverlap > 5 and slowTrailOverlap < 3:
+        feedback.append(f'No trail braking overlap — reference uses {fastTrailOverlap}m. Apply light brake through turn in')
         issues += 1
-    elif (s_overlap - f_overlap) < -8:
-        feedback.append(f'Less trail braking than reference ({s_overlap}m vs {f_overlap}m)')
+    elif (slowTrailOverlap - fastTrailOverlap) < -8:
+        feedback.append(f'Less trail braking than reference ({slowTrailOverlap}m vs {fastTrailOverlap}m)')
         issues += 0.5
 
-    if f_dead is not None and s_dead is not None:
-        dead_diff = s_dead - f_dead
+    if fastDeadZone is not None and slowDeadZone is not None:
+        dead_diff = slowDeadZone - fastDeadZone
         if dead_diff > 15:
-            feedback.append(f'Slow throttle pickup — {s_dead:.0f}m dead zone vs {f_dead:.0f}m ref')
+            feedback.append(f'Slow throttle pickup — {slowDeadZone:.0f}m dead zone vs {fastDeadZone:.0f}m ref')
             issues += 1
         elif dead_diff > 8:
-            feedback.append(f'Slightly slow to throttle after braking ({s_dead:.0f}m vs {f_dead:.0f}m)')
+            feedback.append(f'Slightly slow to throttle after braking ({slowDeadZone:.0f}m vs {fastDeadZone:.0f}m)')
             issues += 0.5
 
-    if lockup(sb):
+    if _lockup(smoothSlowBrake):
         feedback.append('Possible lockup — sudden pressure spike detected. Brake more smoothly')
         issues += 1
 
     if multi_brake:
-        feedback.append(f'Multiple brake applications ({n_apps}x) — pumping brakes or mid-corner correction')
+        feedback.append(f'Multiple brake applications ({numBrakeApps}x) — pumping brakes or mid-corner correction')
         issues += 1
 
     if not feedback:
@@ -169,18 +169,18 @@ def analyze_braking(fast_seg, slow_seg):
         'slow_peak':   round(slow_peak, 3),
         'fast_bp':     round(fast_bp, 1) if fast_bp else None,
         'slow_bp':     round(slow_bp, 1) if slow_bp else None,
-        'fast_hold':   f_hold,
-        'slow_hold':   s_hold,
-        'fast_release': f_release,
-        'slow_release': s_release,
-        'fast_dead':   f_dead,
-        'slow_dead':   s_dead,
-        'f_overlap':   f_overlap,
-        's_overlap':   s_overlap,
-        'fast_shape':  round(f_shape, 3) if f_shape is not None else None,
-        'slow_shape':  round(s_shape, 3) if s_shape is not None else None,
-        'n_apps':      n_apps,
-        'lockup':      lockup(sb),
+        'fast_hold':   fastHoldLen,
+        'slow_hold':   slowHoldLen,
+        'fast_release': fastReleaseLen,
+        'slow_release': slowReleaseLen,
+        'fast_dead':   fastDeadZone,
+        'slow_dead':   slowDeadZone,
+        'f_overlap':   fastTrailOverlap,
+        's_overlap':   slowTrailOverlap,
+        'fast_shape':  round(fastReleaseShape, 3) if fastReleaseShape is not None else None,
+        'slow_shape':  round(slowReleaseShape, 3) if slowReleaseShape is not None else None,
+        'n_apps':      numBrakeApps,
+        'lockup':      _lockup(smoothSlowBrake),
         'multi_brake': multi_brake,
         'feedback':    feedback,
     }
@@ -189,10 +189,10 @@ def analyze_steering(fast_seg, slow_seg):
     feedback = []
     issues   = 0
 
-    fs = smooth(fast_seg['SteeringWheelAngle'])
-    ss = smooth(slow_seg['SteeringWheelAngle'])
+    smoothFastSteer = smooth(fast_seg['SteeringWheelAngle'])
+    smoothSlowSteer = smooth(slow_seg['SteeringWheelAngle'])
 
-    if fs.abs().max() < 0.05 or ss.abs().max() < 0.05:
+    if smoothFastSteer.abs().max() < 0.05 or smoothSlowSteer.abs().max() < 0.05:
         return {
             'grade': 'N/A',
             'fast_max': None,
@@ -204,12 +204,12 @@ def analyze_steering(fast_seg, slow_seg):
             'feedback': ['Not enough steering data']
         }
 
-    fast_max   = fs.abs().max()
-    slow_max   = ss.abs().max()
+    fast_max   = smoothFastSteer.abs().max()
+    slow_max   = smoothSlowSteer.abs().max()
     steer_diff = slow_max - fast_max
 
-    fast_turn_in = first_above(fs.abs(), 0.05)
-    slow_turn_in = first_above(ss.abs(), 0.05)
+    fast_turn_in = first_above(smoothFastSteer.abs(), 0.05)
+    slow_turn_in = first_above(smoothSlowSteer.abs(), 0.05)
 
     def double_turn(steer, threshold=0.05):
         vals = steer.abs().values
@@ -217,15 +217,15 @@ def analyze_steering(fast_seg, slow_seg):
         peak = np.argmax(vals)
         if peak < 5 or peak > len(vals) - 5: return False
         first_half = vals[:peak]
-        ti = next((i for i, v in enumerate(first_half) if v > threshold), None)
-        if ti is None: return False
-        between = first_half[ti:]
+        turnInIdx = next((i for i, v in enumerate(first_half) if v > threshold), None)
+        if turnInIdx is None: return False
+        between = first_half[turnInIdx:]
         if len(between) < 5: return False
         drop = np.max(between) - np.min(between)
         return drop > 0.25 * vals[peak] and np.min(between) < np.max(between) * 0.7
 
-    slow_double = double_turn(ss)
-    fast_double = double_turn(fs)
+    slow_double = double_turn(smoothSlowSteer)
+    fast_double = double_turn(smoothFastSteer)
 
     if steer_diff > 0.15:
         feedback.append(f'Too much steering — {slow_max:.2f} vs {fast_max:.2f} ref. Early apex likely')
@@ -241,15 +241,15 @@ def analyze_steering(fast_seg, slow_seg):
         issues += 0.5
 
     if fast_turn_in and slow_turn_in:
-        ti_diff = slow_turn_in - fast_turn_in
-        if ti_diff < -15:
-            feedback.append(f'Turning in {abs(ti_diff):.0f}m early — leads to early apex and running wide on exit')
+        turnInDiff = slow_turn_in - fast_turn_in
+        if turnInDiff < -15:
+            feedback.append(f'Turning in {abs(turnInDiff):.0f}m early — leads to early apex and running wide on exit')
             issues += 1
-        elif ti_diff < -8:
-            feedback.append(f'Turn in slightly early ({abs(ti_diff):.0f}m) — delay a little')
+        elif turnInDiff < -8:
+            feedback.append(f'Turn in slightly early ({abs(turnInDiff):.0f}m) — delay a little')
             issues += 0.5
-        elif ti_diff > 15:
-            feedback.append(f'Turning in {ti_diff:.0f}m late — may be causing tighter line than optimal')
+        elif turnInDiff > 15:
+            feedback.append(f'Turning in {turnInDiff:.0f}m late — may be causing tighter line than optimal')
             issues += 0.5
 
     if slow_double and not fast_double:
@@ -287,20 +287,20 @@ def analyze_line(fast_seg, slow_seg):
     if len(gap) < 5:
         return {'grade': 'N/A', 'feedback': ['Not enough position data']}
 
-    n      = len(gap)
-    entry  = gap.iloc[:n//3]
-    apex   = gap.iloc[n//3: 2*n//3]
-    exit_  = gap.iloc[2*n//3:]
+    numPoints = len(gap)
+    entry  = gap.iloc[:numPoints // 3]
+    apex   = gap.iloc[numPoints // 3: 2 * numPoints // 3]
+    exitSegment  = gap.iloc[2 * numPoints // 3:]
 
     entry_gap = entry.mean()
     apex_gap  = apex.mean()
-    exit_gap  = exit_.mean()
+    exitGap  = exitSegment.mean()
     max_gap   = gap.max()
     max_gap_m = gap.idxmax()
 
-    if max_gap_m < fast_seg.index[n//3]:
+    if max_gap_m < fast_seg.index[numPoints // 3]:
         worst_phase = 'entry'
-    elif max_gap_m < fast_seg.index[2*n//3]:
+    elif max_gap_m < fast_seg.index[2 * numPoints // 3]:
         worst_phase = 'apex'
     else:
         worst_phase = 'exit'
@@ -322,22 +322,22 @@ def analyze_line(fast_seg, slow_seg):
     if apex_gap > 2.0:
         feedback.append(
             f'Apex {apex_gap:.1f}m from reference — '
-            + ('late apex — losing exit speed' if exit_gap < entry_gap else 'early apex — running wide on exit')
+            + ('late apex — losing exit speed' if exitGap < entry_gap else 'early apex — running wide on exit')
         )
         issues += 1
     elif apex_gap > 1.0:
         feedback.append(f'Apex position {apex_gap:.1f}m off reference')
         issues += 0.5
 
-    if exit_gap > 2.0:
-        feedback.append(f'Exit line {exit_gap:.1f}m from reference — track out further on exit')
+    if exitGap > 2.0:
+        feedback.append(f'Exit line {exitGap:.1f}m from reference — track out further on exit')
         issues += 1
-    elif exit_gap > 1.0:
-        feedback.append(f'Exit line slightly tight ({exit_gap:.1f}m) — use more road')
+    elif exitGap > 1.0:
+        feedback.append(f'Exit line slightly tight ({exitGap:.1f}m) — use more road')
         issues += 0.25
 
-    if entry_gap > 1.0 and apex_gap > 1.0 and exit_gap > 1.0:
-        feedback.append(f'Line offset throughout — entry: {entry_gap:.1f}m, apex: {apex_gap:.1f}m, exit: {exit_gap:.1f}m')
+    if entry_gap > 1.0 and apex_gap > 1.0 and exitGap > 1.0:
+        feedback.append(f'Line offset throughout — entry: {entry_gap:.1f}m, apex: {apex_gap:.1f}m, exit: {exitGap:.1f}m')
         issues += 0.5
 
     if not feedback:
@@ -347,7 +347,7 @@ def analyze_line(fast_seg, slow_seg):
         'grade':       grade(issues),
         'entry_gap':   round(entry_gap, 2),
         'apex_gap':    round(apex_gap, 2),
-        'exit_gap':    round(exit_gap, 2),
+        'exit_gap':    round(exitGap, 2),
         'max_gap':     round(max_gap, 2),
         'worst_phase': worst_phase,
         'feedback':    feedback,
@@ -374,10 +374,10 @@ def analyze_corner(fast_seg, slow_seg, corner_name, delta_seg, apex_idx=None):
     thr_diff    = round(slow_thr_pt - fast_thr_pt, 0) if (fast_thr_pt and slow_thr_pt) else None
 
     entry_time_lost = None
-    exit_time_lost = None
+    exitTimeLost = None
     entry_speed_diff = None
     apex_speed_diff = None
-    exit_speed_diff = None
+    exitSpeedDiff = None
     speed_recovery_rate = None
     lat_g = None
     understeer = False
@@ -387,9 +387,9 @@ def analyze_corner(fast_seg, slow_seg, corner_name, delta_seg, apex_idx=None):
         apex_loc = fast_seg.index.get_loc(apex_idx)
 
         entry_delta = delta_seg.iloc[:apex_loc + 1]
-        exit_delta = delta_seg.iloc[apex_loc:]
+        exitDelta = delta_seg.iloc[apex_loc:]
         entry_time_lost = round(entry_delta['time_delta'].iloc[-1] - entry_delta['time_delta'].iloc[0], 3)
-        exit_time_lost = round(exit_delta['time_delta'].iloc[-1] - exit_delta['time_delta'].iloc[0], 3)
+        exitTimeLost = round(exitDelta['time_delta'].iloc[-1] - exitDelta['time_delta'].iloc[0], 3)
 
         fast_entry_spd = fast_seg['Speed'].iloc[0] * 3.6
         slow_entry_spd = slow_seg['Speed'].iloc[0] * 3.6
@@ -399,14 +399,14 @@ def analyze_corner(fast_seg, slow_seg, corner_name, delta_seg, apex_idx=None):
         slow_apex_spd = slow_seg['Speed'].iloc[apex_loc] * 3.6
         apex_speed_diff = round(slow_apex_spd - fast_apex_spd, 1)
 
-        fast_exit_spd = fast_seg['Speed'].iloc[-1] * 3.6
-        slow_exit_spd = slow_seg['Speed'].iloc[-1] * 3.6
-        exit_speed_diff = round(slow_exit_spd - fast_exit_spd, 1)
+        fastExitSpd = fast_seg['Speed'].iloc[-1] * 3.6
+        slowExitSpd = slow_seg['Speed'].iloc[-1] * 3.6
+        exitSpeedDiff = round(slowExitSpd - fastExitSpd, 1)
 
-        exit_dist = fast_seg.index[-1] - apex_idx
-        if exit_dist > 0:
-            fast_recovery = (fast_exit_spd - fast_apex_spd) / exit_dist * 100
-            slow_recovery = (slow_exit_spd - slow_apex_spd) / exit_dist * 100
+        exitDist = fast_seg.index[-1] - apex_idx
+        if exitDist > 0:
+            fast_recovery = (fastExitSpd - fast_apex_spd) / exitDist * 100
+            slow_recovery = (slowExitSpd - slow_apex_spd) / exitDist * 100
             speed_recovery_rate = round(slow_recovery - fast_recovery, 1)
 
         lat_g = {
@@ -418,20 +418,38 @@ def analyze_corner(fast_seg, slow_seg, corner_name, delta_seg, apex_idx=None):
 
         understeer, understeer_ratio = _understeer_at_apex(fast_seg, slow_seg, apex_loc)
 
+    fast_gear = fast_seg['Gear'].values
+    slow_gear = slow_seg['Gear'].values
+    fast_gear_pos = fast_gear[fast_gear > 0]
+    slow_gear_pos = slow_gear[slow_gear > 0]
+    gear = {
+        'fast_entry': int(round(fast_gear[0])),
+        'slow_entry': int(round(slow_gear[0])),
+        'fast_exit': int(round(fast_gear[-1])),
+        'slow_exit': int(round(slow_gear[-1])),
+        'fast_min': int(round(fast_gear_pos.min())) if len(fast_gear_pos) > 0 else None,
+        'slow_min': int(round(slow_gear_pos.min())) if len(slow_gear_pos) > 0 else None,
+        'fast_apex': int(round(fast_gear[apex_loc])) if apex_idx is not None and apex_idx in fast_seg.index else None,
+        'slow_apex': int(round(slow_gear[apex_loc])) if apex_idx is not None and apex_idx in fast_seg.index else None,
+        'fast_changes': int((np.diff(fast_gear) != 0).sum()),
+        'slow_changes': int((np.diff(slow_gear) != 0).sum()),
+    }
+
     return {
         'corner':     corner_name,
         'time_lost':  round(time_lost, 3),
         'speed_diff': round((slow_seg['Speed'].min() - fast_seg['Speed'].min()) * 3.6, 1),
         'thr_diff':   thr_diff,
         'entry_time_lost': entry_time_lost,
-        'exit_time_lost': exit_time_lost,
+        'exit_time_lost': exitTimeLost,
         'entry_speed_diff': entry_speed_diff,
         'apex_speed_diff': apex_speed_diff,
-        'exit_speed_diff': exit_speed_diff,
+        'exit_speed_diff': exitSpeedDiff,
         'speed_recovery_rate': speed_recovery_rate,
         'lat_g': lat_g,
         'understeer': understeer,
         'understeer_ratio': understeer_ratio,
+        'gear':       gear,
         'braking':    analyze_braking(fast_seg, slow_seg),
         'steering':   analyze_steering(fast_seg, slow_seg),
         'line':       analyze_line(fast_seg, slow_seg),

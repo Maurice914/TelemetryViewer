@@ -1,126 +1,147 @@
 import { useState, useRef, useEffect } from 'react'
 import styles from './Trackmap.module.css'
 import { useLapData, getLapColor } from '../../contexts/LapDataContext'
-import { parseCSV, Point } from '../../utils/csvParser'
-
-interface PixelPoint {
-  x: number
-  y: number
-  lapDistPct: number
-  lapIndex: number
-  yaw: number
-}
+import { toPixelPoints, screenToViewBox, CORNER_COLORS, PixelPoint } from './projection'
+import { usePanZoom } from './usePanZoom'
 
 interface TrackmapProps {
   onInfoChange?: (text: string) => void
 }
 
-function toPixelPoints(
-  points: Point[],
-  minLat: number,
-  maxLat: number,
-  minLon: number,
-  maxLon: number,
-  width: number,
-  height: number,
-  lapIndex: number
-): PixelPoint[] {
-  const padding = 50
-  const drawW = width - 2 * padding
-  const drawH = height - 2 * padding
-
-  const midLat = (minLat + maxLat) / 2
-  const cosLat = Math.cos((midLat * Math.PI) / 180)
-
-  const latRange = maxLat - minLat
-  const lonRange = (maxLon - minLon) * cosLat
-
-  const scale = Math.min(drawW / lonRange, drawH / latRange)
-
-  const offsetX = (drawW - lonRange * scale) / 2
-  const offsetY = (drawH - latRange * scale) / 2
-
-  const pts = points.map((p) => ({
-    x: padding + offsetX + (p.lon - minLon) * cosLat * scale,
-    y: padding + offsetY + (latRange - (p.lat - minLat)) * scale,
-    lapDistPct: p.lapDistPct,
-    yawRate: p.yawRate,
-    latAccel: p.latAccel,
-    lapIndex
-  }))
-
-  const hasYawRate = pts.some((p) => Math.abs(p.yawRate) > 0.0001)
-
-  if (!hasYawRate) {
-    return pts.map((pt, i, arr) => {
-      let dx = 0; let dy = -1
-      if (i < arr.length - 1) { dx = arr[i + 1].x - pt.x; dy = arr[i + 1].y - pt.y }
-      else if (arr.length > 1) { dx = pt.x - arr[i - 1].x; dy = pt.y - arr[i - 1].y }
-      const mag = Math.sqrt(dx * dx + dy * dy)
-      let heading = 0
-      if (mag > 0.001) heading = Math.atan2(dx, -dy) - 0.0035 * pt.latAccel
-      return { x: pt.x, y: pt.y, lapDistPct: pt.lapDistPct, lapIndex, yaw: heading }
-    })
-  }
-
-  const dt = 1 / 60
-  const headings: number[] = new Array(pts.length)
-  if (pts.length > 1) {
-    const dx = pts[1].x - pts[0].x; const dy = pts[1].y - pts[0].y
-    headings[0] = Math.sqrt(dx * dx + dy * dy) > 0.001 ? Math.atan2(dx, -dy) : 0
-  } else {
-    headings[0] = 0
-  }
-  for (let i = 1; i < pts.length; i++) {
-    headings[i] = headings[i - 1] - pts[i - 1].yawRate * dt
-  }
-
-  return pts.map((pt, i) => ({
-    x: pt.x, y: pt.y, lapDistPct: pt.lapDistPct, lapIndex, yaw: headings[i]
-  }))
-}
-
 function Trackmap({ onInfoChange }: TrackmapProps): React.JSX.Element {
   const { laps, hoveredLapPct, setHoveredLapPct, cornerHighlight, allCornerHighlights } = useLapData()
   const [pixelPoints, setPixelPoints] = useState<PixelPoint[][]>([])
-  const [leftLimitPoints, setLeftLimitPoints] = useState<PixelPoint[]>([])
-  const [rightLimitPoints, setRightLimitPoints] = useState<PixelPoint[]>([])
+
   const [hoveredPoints, setHoveredPoints] = useState<PixelPoint[]>([])
   const [highlightSegments, setHighlightSegments] = useState<PixelPoint[][]>([])
   const [allSegments, setAllSegments] = useState<{ pts: PixelPoint[]; idx: number }[]>([])
+  const [svgOverlay, setSvgOverlay] = useState<string | null>(null)
+  const [svgViewBox, setSvgViewBox] = useState('0 0 800 800')
+  const [svgScale, setSvgScale] = useState(1)
+  const [svgOffsetX, setSvgOffsetX] = useState(0)
+  const [svgOffsetY, setSvgOffsetY] = useState(0)
+  const [savedMaps, setSavedMaps] = useState<string[]>([])
+  const [showSaveInput, setShowSaveInput] = useState(false)
+  const saveInputRef = useRef<HTMLInputElement>(null)
 
   const svgRef = useRef<SVGSVGElement>(null)
+  const svgInputRef = useRef<HTMLInputElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
+  const projectionBoundsRef = useRef<{ minLat: number; maxLat: number; minLon: number; maxLon: number } | null>(null)
 
-  const [pan, setPan] = useState({ x: 0, y: 0 })
-  const [scale, setScale] = useState(1)
-  const dragging = useRef(false)
-  const dragStart = useRef({ mouseX: 0, mouseY: 0, panX: 0, panY: 0 })
-  const panRef = useRef(pan)
-  const scaleRef = useRef(scale)
-  const prevViewRef = useRef<{ pan: { x: number; y: number }; scale: number } | null>(null)
-  panRef.current = pan
-  scaleRef.current = scale
+  const { pan, scale, handlePanMouseDown, dragging } = usePanZoom(svgRef, containerRef, pixelPoints, cornerHighlight)
 
-  // Convert all laps to pixel coordinates
+  function startScrubScale(e: React.MouseEvent) {
+    e.preventDefault()
+    const startX = e.clientX
+    const startVal = svgScale
+    function onMove(e2: MouseEvent) {
+      const dx = e2.clientX - startX
+      setSvgScale(Math.max(0.1, Math.min(5, +(startVal + dx * 0.01).toFixed(2))))
+    }
+    function onUp() {
+      document.removeEventListener('mousemove', onMove)
+      document.removeEventListener('mouseup', onUp)
+    }
+    document.addEventListener('mousemove', onMove)
+    document.addEventListener('mouseup', onUp)
+  }
+
+  function startScrubOffsetX(e: React.MouseEvent) {
+    e.preventDefault()
+    const startX = e.clientX
+    const startVal = svgOffsetX
+    function onMove(e2: MouseEvent) {
+      const dx = e2.clientX - startX
+      setSvgOffsetX(Math.max(-800, Math.min(800, startVal + dx)))
+    }
+    function onUp() {
+      document.removeEventListener('mousemove', onMove)
+      document.removeEventListener('mouseup', onUp)
+    }
+    document.addEventListener('mousemove', onMove)
+    document.addEventListener('mouseup', onUp)
+  }
+
+  function startScrubOffset(e: React.MouseEvent) {
+    e.preventDefault()
+    const startX = e.clientX
+    const startVal = svgOffsetY
+    function onMove(e2: MouseEvent) {
+      const dx = e2.clientX - startX
+      setSvgOffsetY(Math.max(-800, Math.min(800, startVal + dx)))
+    }
+    function onUp() {
+      document.removeEventListener('mousemove', onMove)
+      document.removeEventListener('mouseup', onUp)
+    }
+    document.addEventListener('mousemove', onMove)
+    document.addEventListener('mouseup', onUp)
+  }
+
+  function handleSvgImport(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    if (!file) return
+    const reader = new FileReader()
+    reader.onload = () => {
+      const text = reader.result as string
+      const match = text.match(/viewBox=["']([^"']+)["']/)
+      if (match) setSvgViewBox(match[1])
+      const inner = text.replace(/<svg[^>]*>/i, '').replace(/<\/svg>/i, '')
+      setSvgOverlay(inner)
+    }
+    reader.readAsText(file)
+  }
+
+  async function handleSaveSvg(e: React.FormEvent) {
+    e.preventDefault()
+    const name = saveInputRef.current?.value.trim()
+    if (!svgOverlay || !name) return
+    const fullSvg = `<svg viewBox="${svgViewBox}" xmlns="http://www.w3.org/2000/svg">${svgOverlay}</svg>`
+    await window.api.saveTrackOverlay(name, fullSvg, { scale: svgScale, offsetX: svgOffsetX, offsetY: svgOffsetY })
+    setShowSaveInput(false)
+    setSavedMaps(await window.api.listTracks())
+  }
+
+  async function handleLoadMap(trackName: string) {
+    if (!trackName) return
+    const { svgContent, overlay } = await window.api.loadTrackOverlay(trackName)
+    const match = svgContent.match(/viewBox=["']([^"']+)["']/)
+    if (match) setSvgViewBox(match[1])
+    const inner = svgContent.replace(/<svg[^>]*>/i, '').replace(/<\/svg>/i, '')
+    setSvgOverlay(inner)
+    setSvgScale(overlay.scale)
+    setSvgOffsetX(overlay.offsetX)
+    setSvgOffsetY(overlay.offsetY)
+  }
+
+  useEffect(() => {
+    window.api.listTracks().then(setSavedMaps).catch(() => {})
+  }, [])
+
   useEffect(() => {
     if (laps.length === 0) {
       setPixelPoints([])
+      projectionBoundsRef.current = null
       return
     }
 
-    const allPoints = laps.flatMap((l) => l.points)
-    const minLat = Math.min(...allPoints.map((p) => p.lat))
-    const maxLat = Math.max(...allPoints.map((p) => p.lat))
-    const minLon = Math.min(...allPoints.map((p) => p.lon))
-    const maxLon = Math.max(...allPoints.map((p) => p.lon))
+    if (!projectionBoundsRef.current) {
+      const p = laps[0].points
+      projectionBoundsRef.current = {
+        minLat: Math.min(...p.map((p) => p.lat)),
+        maxLat: Math.max(...p.map((p) => p.lat)),
+        minLon: Math.min(...p.map((p) => p.lon)),
+        maxLon: Math.max(...p.map((p) => p.lon)),
+      }
+    }
 
+    const b = projectionBoundsRef.current
     setPixelPoints(
-      laps.map((lap, i) => toPixelPoints(lap.points, minLat, maxLat, minLon, maxLon, 800, 800, i))
+      laps.map((lap, i) => toPixelPoints(lap.points, b.minLat, b.maxLat, b.minLon, b.maxLon, 800, 800, i))
     )
   }, [laps])
 
-  // Compute highlighted corner segments from coaching report
   useEffect(() => {
     if (cornerHighlight === null || pixelPoints.length === 0) {
       setHighlightSegments([])
@@ -139,9 +160,6 @@ function Trackmap({ onInfoChange }: TrackmapProps): React.JSX.Element {
     setHighlightSegments(segs)
   }, [cornerHighlight, pixelPoints])
 
-  const CORNER_COLORS = ['#ff4444', '#44bb44', '#4488ff', '#ff8800', '#cc44cc', '#888888', '#44dddd', '#ff44aa']
-
-  // Compute all corner highlight segments
   useEffect(() => {
     if (allCornerHighlights.length === 0 || pixelPoints.length === 0) {
       setAllSegments([])
@@ -159,87 +177,6 @@ function Trackmap({ onInfoChange }: TrackmapProps): React.JSX.Element {
     setAllSegments(segs)
   }, [allCornerHighlights, pixelPoints])
 
-  // Zoom into highlighted corner segment
-  useEffect(() => {
-    if (cornerHighlight === null) {
-      if (prevViewRef.current) {
-        setPan(prevViewRef.current.pan)
-        setScale(prevViewRef.current.scale)
-        prevViewRef.current = null
-      }
-      return
-    }
-
-    if (pixelPoints.length === 0) return
-
-    if (!prevViewRef.current) {
-      prevViewRef.current = { pan: { ...panRef.current }, scale: scaleRef.current }
-    }
-
-    const { startPct, endPct } = cornerHighlight
-    const allPts = pixelPoints.flat().filter(
-      (p) => p.lapDistPct >= startPct && p.lapDistPct <= endPct
-    )
-
-    if (allPts.length === 0) return
-
-    const xs = allPts.map((p) => p.x)
-    const ys = allPts.map((p) => p.y)
-    const minX = Math.min(...xs)
-    const maxX = Math.max(...xs)
-    const minY = Math.min(...ys)
-    const maxY = Math.max(...ys)
-
-    const boxW = maxX - minX || 1
-    const boxH = maxY - minY || 1
-    const padding = 40
-    const centerX = (minX + maxX) / 2
-    const centerY = (minY + maxY) / 2
-
-    const targetScale = Math.min(
-      560 / (boxW + 2 * padding),
-      560 / (boxH + 2 * padding)
-    )
-    const clampedScale = Math.max(0.5, Math.min(targetScale, 50))
-
-    setPan({ x: 400 - centerX * clampedScale, y: 400 - centerY * clampedScale })
-    setScale(clampedScale)
-  }, [cornerHighlight, pixelPoints])
-
-  // Load track limits
-  useEffect(() => {
-    async function loadLimits() {
-      try {
-        const leftCsv = (await window.api.readFile(
-          'C:\\Users\\mauri\\Documents\\projects\\MLCoachTest\\ml-coach-frontend\\src\\tracks\\Summit-Point-Raceway\\Summit-Point-Raceway-Limits-Left.csv'
-        )) as string
-        const rightCsv = (await window.api.readFile(
-          'C:\\Users\\mauri\\Documents\\projects\\MLCoachTest\\ml-coach-frontend\\src\\tracks\\Summit-Point-Raceway\\Summit-Point-Raceway-Limits-Right.csv'
-        )) as string
-
-        const leftRaw = parseCSV(leftCsv)
-        const rightRaw = parseCSV(rightCsv)
-
-        const allPoints = laps.flatMap((l) => l.points)
-        if (allPoints.length === 0) return
-        const minLat = Math.min(...allPoints.map((p) => p.lat))
-        const maxLat = Math.max(...allPoints.map((p) => p.lat))
-        const minLon = Math.min(...allPoints.map((p) => p.lon))
-        const maxLon = Math.max(...allPoints.map((p) => p.lon))
-
-        setLeftLimitPoints(toPixelPoints(leftRaw, minLat, maxLat, minLon, maxLon, 800, 800, -1))
-        setRightLimitPoints(toPixelPoints(rightRaw, minLat, maxLat, minLon, maxLon, 800, 800, -1))
-      } catch (err) {
-        console.error('Failed to load track limits:', err)
-      }
-    }
-
-    if (laps.length > 0) {
-      loadLimits()
-    }
-  }, [laps])
-
-  // Sync hovered points from graph hovers
   useEffect(() => {
     if (hoveredLapPct === null) {
       setHoveredPoints([])
@@ -271,82 +208,6 @@ function Trackmap({ onInfoChange }: TrackmapProps): React.JSX.Element {
   useEffect(() => {
     onInfoChange?.(trackmapInfo)
   }, [trackmapInfo, onInfoChange])
-
-  function screenToViewBox(clientX: number, clientY: number, rect: DOMRect) {
-    const scaleFactor = Math.min(rect.width, rect.height) / 800
-    const paddingX = (rect.width - 800 * scaleFactor) / 2
-    const paddingY = (rect.height - 800 * scaleFactor) / 2
-
-    return {
-      x: (clientX - rect.left - paddingX) / scaleFactor,
-      y: (clientY - rect.top - paddingY) / scaleFactor
-    }
-  }
-
-  function handlePanMouseDown(e: React.MouseEvent) {
-    e.preventDefault()
-    dragging.current = true
-    dragStart.current = {
-      mouseX: e.clientX,
-      mouseY: e.clientY,
-      panX: pan.x,
-      panY: pan.y
-    }
-  }
-
-  useEffect(() => {
-    function handleMouseMove(e: MouseEvent) {
-      if (!dragging.current) return
-      const svg = svgRef.current
-      if (!svg) return
-      const rect = svg.getBoundingClientRect()
-
-      const dx = e.clientX - dragStart.current.mouseX
-      const dy = e.clientY - dragStart.current.mouseY
-
-      const scaleFactor = Math.min(rect.width, rect.height) / 800
-
-      setPan({
-        x: dragStart.current.panX + dx / scaleFactor,
-        y: dragStart.current.panY + dy / scaleFactor
-      })
-    }
-
-    function handleMouseUp() {
-      dragging.current = false
-    }
-
-    window.addEventListener('mousemove', handleMouseMove)
-    window.addEventListener('mouseup', handleMouseUp)
-    return () => {
-      window.removeEventListener('mousemove', handleMouseMove)
-      window.removeEventListener('mouseup', handleMouseUp)
-    }
-  }, [])
-
-  useEffect(() => {
-    const el = containerRef.current
-    if (!el) return
-    function onWheel(e: WheelEvent) {
-      e.preventDefault()
-      const svg = svgRef.current
-      if (!svg) return
-
-      const rect = svg.getBoundingClientRect()
-      const mouse = screenToViewBox(e.clientX, e.clientY, rect)
-
-      let newScale = scale - e.deltaY * 0.001 * scale
-      newScale = Math.max(0.5, Math.min(newScale, 50))
-
-      const newPanX = mouse.x - ((mouse.x - pan.x) / scale) * newScale
-      const newPanY = mouse.y - ((mouse.y - pan.y) / scale) * newScale
-
-      setPan({ x: newPanX, y: newPanY })
-      setScale(newScale)
-    }
-    el.addEventListener('wheel', onWheel, { passive: false })
-    return () => el.removeEventListener('wheel', onWheel)
-  }, [scale, pan])
 
   function handleMouseMove(e: React.MouseEvent<SVGSVGElement>) {
     const svg = svgRef.current
@@ -391,6 +252,58 @@ function Trackmap({ onInfoChange }: TrackmapProps): React.JSX.Element {
 
   return (
     <div className={styles.base}>
+      <div style={{ display: 'flex', gap: 6, padding: '4px 8px', alignItems: 'center', fontSize: 12 }}>
+        <button onClick={() => svgInputRef.current?.click()}>+ SVG</button>
+        <input ref={svgInputRef} type="file" accept=".svg" style={{ display: 'none' }} onChange={handleSvgImport} />
+        {svgOverlay && (
+          <>
+            <span
+              style={{ cursor: 'ew-resize', userSelect: 'none' }}
+              onMouseDown={startScrubScale}
+            >
+              {svgScale.toFixed(2)}x
+            </span>
+            <span
+              style={{ cursor: 'ew-resize', userSelect: 'none' }}
+              onMouseDown={startScrubOffsetX}
+            >
+              X {svgOffsetX}px
+            </span>
+            <span
+              style={{ cursor: 'ew-resize', userSelect: 'none' }}
+              onMouseDown={startScrubOffset}
+            >
+              Y {svgOffsetY}px
+            </span>
+            {showSaveInput ? (
+              <form style={{ display: 'inline' }} onSubmit={handleSaveSvg}>
+                <input
+                  ref={saveInputRef}
+                  autoFocus
+                  style={{ width: 80, fontSize: 11 }}
+                  onBlur={() => setShowSaveInput(false)}
+                  placeholder="track name"
+                />
+              </form>
+            ) : (
+              <button onClick={() => setShowSaveInput(true)}>Save</button>
+            )}
+            <button onClick={() => { setSvgOverlay(null); setSvgScale(1); setSvgOffsetX(0); setSvgOffsetY(0) }}>Remove</button>
+          </>
+        )}
+        {savedMaps.length > 0 && (
+          <select
+            style={{ fontSize: 11, padding: '1px 4px' }}
+            defaultValue=""
+            onChange={(e) => { const v = e.target.value; if (v) handleLoadMap(v) }}
+          >
+            <option value="" disabled>Maps</option>
+            {savedMaps.map((name) => (
+              <option key={name} value={name}>{name}</option>
+            ))}
+          </select>
+        )}
+      </div>
       <div className={styles.mapContainer} ref={containerRef}>
         <svg
           ref={svgRef}
@@ -402,22 +315,15 @@ function Trackmap({ onInfoChange }: TrackmapProps): React.JSX.Element {
           onMouseMove={handleMouseMove}
         >
           <g transform={`translate(${pan.x}, ${pan.y}) scale(${scale})`}>
-            {/* Track limits */}
-            <polyline
-              points={leftLimitPoints.map((p) => `${p.x},${p.y}`).join(' ')}
-              fill="none"
-              stroke="black"
-              strokeWidth={2.4 / scale}
-              opacity="0.7"
-            />
-            <polyline
-              points={rightLimitPoints.map((p) => `${p.x},${p.y}`).join(' ')}
-              fill="none"
-              stroke="black"
-              strokeWidth={2.4 / scale}
-              opacity="0.7"
-            />
-            {/* All corners highlight (glow + main) */}
+            {svgOverlay && (
+              <g
+                opacity={0.5}
+                transform={`translate(${svgOffsetX + (800 - 800 * svgScale) / 2}, ${svgOffsetY + (800 - 800 * svgScale) / 2}) scale(${svgScale})`}
+              >
+                <svg viewBox={svgViewBox} width={800} height={800} dangerouslySetInnerHTML={{ __html: svgOverlay }} />
+              </g>
+            )}
+
             {allSegments.map((seg, i) => {
               const color = CORNER_COLORS[seg.idx % CORNER_COLORS.length]
               return (
@@ -448,7 +354,6 @@ function Trackmap({ onInfoChange }: TrackmapProps): React.JSX.Element {
                 />
               )
             })}
-            {/* Highlighted corner segment (active selection) */}
             {highlightSegments.map((pts, i) => (
               <polyline
                 key={`hl-${i}`}
@@ -460,7 +365,6 @@ function Trackmap({ onInfoChange }: TrackmapProps): React.JSX.Element {
                 strokeLinejoin="round"
               />
             ))}
-            {/* Lap polylines */}
             {pixelPoints.map((pts, i) => (
               <polyline
                 key={i}
@@ -470,7 +374,6 @@ function Trackmap({ onInfoChange }: TrackmapProps): React.JSX.Element {
                 strokeWidth={1.3 / scale}
               />
             ))}
-            {/* Hovered points (one per lap) with heading lines */}
             {hoveredPoints.map((p, i) => (
               <g key={i}>
                 <circle cx={p.x} cy={p.y} r={7 / Math.min(3, scale)} fill={getLapColor(p.lapIndex)} />
