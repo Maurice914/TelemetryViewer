@@ -1,13 +1,18 @@
 import { useState } from 'react'
+import { useLapData } from '../../contexts/LapDataContext'
 import Trackmap from '../TrackMap/Trackmap'
-import ThrottleGraph from '../Graphs/ThrottleGraph'
-import BrakeGraph from '../Graphs/BrakeGraph'
-import SpeedGraph from '../Graphs/SpeedGraph'
-import RPMGraph from '../Graphs/RPMGraph'
-import SteeringWheelAngleGraph from '../Graphs/SteeringWheelAngleGraph'
-import GearGraph from '../Graphs/GearGraph'
+import Graph, { DataKey } from '../Graphs/Graph'
 import TimeDeltaGraph from '../Graphs/TimeDeltaGraph'
 import CoachingReport from '../CoachingReport/CoachingReport'
+
+function makeGraph(label: string, dataKey: DataKey, centerBaseline?: boolean) {
+  return function Wrapper({ onInfoChange }: { onInfoChange?: (text: string) => void }) {
+    const { laps, lapColors } = useLapData()
+    return laps.length === 0 ? null : (
+      <Graph label={label} dataKey={dataKey} lines={laps.map((l, i) => ({ points: l.points, color: lapColors[i] }))} centerBaseline={centerBaseline} onInfoChange={onInfoChange} />
+    )
+  }
+}
 
 interface PaneSelectorProps {
   defaultComponent?: string
@@ -23,12 +28,12 @@ const COMPONENTS: Record<
   }
 > = {
   trackmap: { component: Trackmap, defaultLabel: 'Track Map' },
-  throttle: { component: ThrottleGraph, defaultLabel: 'Throttle' },
-  brake: { component: BrakeGraph, defaultLabel: 'Brake' },
-  speed: { component: SpeedGraph, defaultLabel: 'Speed' },
-  rpm: { component: RPMGraph, defaultLabel: 'RPM' },
-  steering: { component: SteeringWheelAngleGraph, defaultLabel: 'Steering' },
-  gear: { component: GearGraph, defaultLabel: 'Gear' },
+  throttle: { component: makeGraph('Throttle', 'throttle'), defaultLabel: 'Throttle' },
+  brake: { component: makeGraph('Brake', 'brake'), defaultLabel: 'Brake' },
+  speed: { component: makeGraph('Speed', 'speed'), defaultLabel: 'Speed' },
+  rpm: { component: makeGraph('RPM', 'rpm'), defaultLabel: 'RPM' },
+  steering: { component: makeGraph('Steering', 'steeringWheelAngle', true), defaultLabel: 'Steering' },
+  gear: { component: makeGraph('Gear', 'gear'), defaultLabel: 'Gear' },
   delta: { component: TimeDeltaGraph, defaultLabel: 'Delta' },
   coaching: { component: CoachingReport, defaultLabel: 'Coaching Report' },
   empty: { component: EmptyPlaceholder, defaultLabel: '' }
@@ -39,17 +44,14 @@ function EmptyPlaceholder() {
 }
 
 function PaneSelector({ defaultComponent = 'empty', onRemove, onComponentChange }: PaneSelectorProps) {
-  const [paneId, setPaneId] = useState(defaultComponent)
   const [infoText, setInfoText] = useState('')
 
   function handlePaneChange(e: React.ChangeEvent<HTMLSelectElement>) {
-    const id = e.target.value
-    setPaneId(id)
     setInfoText('')
-    onComponentChange?.(id)
+    onComponentChange?.(e.target.value)
   }
 
-  const entry = COMPONENTS[paneId] ?? COMPONENTS.empty
+  const entry = COMPONENTS[defaultComponent] ?? COMPONENTS.empty
   const Component = entry.component
   const displayText = infoText || entry.defaultLabel
 
@@ -68,7 +70,7 @@ function PaneSelector({ defaultComponent = 'empty', onRemove, onComponentChange 
         }}
       >
         <select
-          value={paneId}
+          value={defaultComponent}
           onChange={handlePaneChange}
           style={{ fontSize: 13, padding: '1px 4px' }}
         >

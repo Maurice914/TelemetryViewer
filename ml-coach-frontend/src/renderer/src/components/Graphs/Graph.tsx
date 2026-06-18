@@ -1,9 +1,11 @@
 import { useRef, useState, useEffect } from 'react'
 import { useLapData, Point } from '../../contexts/LapDataContext'
+import { useSettings } from '../../contexts/SettingsContext'
 import { useGraphSelection } from '../../hooks/useGraphSelection'
+import { niceTicks } from '../../utils/graphHelpers'
 import Tooltip from './Tooltip'
 
-type DataKey = 'throttle' | 'brake' | 'speed' | 'rpm' | 'steeringWheelAngle' | 'gear'
+export type DataKey = 'throttle' | 'brake' | 'speed' | 'rpm' | 'steeringWheelAngle' | 'gear'
 
 function downsample<T>(arr: T[], max: number): T[] {
   if (arr.length <= max || max < 2) return arr
@@ -51,15 +53,19 @@ function formatTooltipVal(dataKey: DataKey, val: number): string {
   return val.toFixed(1)
 }
 
+const RULER_W = 32
+
 function Graph({ label, dataKey, lines, centerBaseline, onInfoChange }: GraphProps) {
   const { hoveredLapPct, setHoveredLapPct, selection } = useLapData()
+  const { settings } = useSettings()
   const svgRef = useRef<SVGSVGElement>(null)
   const getVal = (p: Point) => p[dataKey as keyof Point] ?? 0
   const [hoveredInfo, setHoveredInfo] = useState<{ point: Point; lineIndex: number } | null>(null)
   const [isLocalHover, setIsLocalHover] = useState(false)
   const [mousePos, setMousePos] = useState({ clientX: 0, clientY: 0 })
 
-  const { isSelecting, selectStart, selectEnd, getPctFromMouse, handleMouseDown: selectionMouseDown, trySelectInMove, handleMouseUp: selectionMouseUp, handleKeyDown: selectionKeyDown, getSelectionRect } = useGraphSelection(svgRef)
+  const rulerOff = settings.showRuler ? RULER_W : 0
+  const { isSelecting, selectStart, selectEnd, getPctFromMouse, handleMouseDown: selectionMouseDown, trySelectInMove, handleMouseUp: selectionMouseUp, handleKeyDown: selectionKeyDown, getSelectionRect } = useGraphSelection(svgRef, rulerOff)
 
   const allVals = lines.flatMap((l) => l.points.map(getVal))
   const minVal = Math.min(...allVals)
@@ -148,13 +154,14 @@ function Graph({ label, dataKey, lines, centerBaseline, onInfoChange }: GraphPro
     const svg = svgRef.current
     if (!svg) return ''
     const width = svg.clientWidth
+    const dataW = width - (settings.showRuler ? RULER_W : 0)
     const height = svg.clientHeight
     const sampled = downsample(points, Math.ceil(width))
 
     if (!selection) {
       return sampled
         .map((p) => {
-          const x = p.lapDistPct * width
+          const x = (settings.showRuler ? RULER_W : 0) + p.lapDistPct * dataW
           const y = (toY(getVal(p)) / 100) * height
           return `${x},${y}`
         })
@@ -165,7 +172,7 @@ function Graph({ label, dataKey, lines, centerBaseline, onInfoChange }: GraphPro
     return sampled
       .filter((p) => p.lapDistPct >= startPct && p.lapDistPct <= endPct)
       .map((p) => {
-        const x = ((p.lapDistPct - startPct) / range) * width
+        const x = (settings.showRuler ? RULER_W : 0) + ((p.lapDistPct - startPct) / range) * dataW
         const y = (toY(getVal(p)) / 100) * height
         return `${x},${y}`
       })
@@ -178,11 +185,12 @@ function Graph({ label, dataKey, lines, centerBaseline, onInfoChange }: GraphPro
     const svg = svgRef.current
     if (!svg) return null
     const width = svg.clientWidth
+    const dataW = width - (settings.showRuler ? RULER_W : 0)
     const height = svg.clientHeight
-    const x = selection
+    const x = (settings.showRuler ? RULER_W : 0) + (selection
       ? ((info.point.lapDistPct - selection.startPct) / (selection.endPct - selection.startPct)) *
-        width
-      : info.point.lapDistPct * width
+        dataW
+      : info.point.lapDistPct * dataW)
     const y = (toY(getVal(info.point)) / 100) * height
     return <circle cx={x} cy={y} r="3" fill={lines[info.lineIndex].color} />
   }
@@ -192,16 +200,40 @@ function Graph({ label, dataKey, lines, centerBaseline, onInfoChange }: GraphPro
     const svg = svgRef.current
     if (!svg) return null
     const width = svg.clientWidth
+    const dataW = width - (settings.showRuler ? RULER_W : 0)
     const height = svg.clientHeight
     const y = height / 2
     return (
-      <line x1={0} y1={y} x2={width} y2={y} stroke="#999" strokeWidth="1" strokeDasharray="4,4" />
+      <line x1={settings.showRuler ? RULER_W : 0} y1={y} x2={settings.showRuler ? width : dataW} y2={y} stroke="#999" strokeWidth="1" strokeDasharray="4,4" />
     )
   }
 
   const tooltipText = displayInfo
     ? `${label}: ${formatTooltipVal(dataKey, getVal(displayInfo.point))}`
     : ''
+
+  function getRuler() {
+    if (!settings.showRuler) return null
+    const svg = svgRef.current
+    if (!svg) return null
+    const width = svg.clientWidth
+    const height = svg.clientHeight
+    const ticks = niceTicks(minVal, maxVal)
+    return (
+      <g>
+        <rect x={0} y={0} width={RULER_W} height={height} fill="#fafafa" stroke="#ddd" />
+        {ticks.map((tick, i) => {
+          const ty = (toY(tick) / 100) * height
+          return (
+            <g key={i}>
+              <line x1={RULER_W} y1={ty} x2={width} y2={ty} stroke="#eee" strokeWidth={1} />
+              <text x={3} y={ty + 3} fontSize={9} fill="#888">{formatTooltipVal(dataKey, tick)}</text>
+            </g>
+          )
+        })}
+      </g>
+    )
+  }
 
   return (
     <>
@@ -218,6 +250,7 @@ function Graph({ label, dataKey, lines, centerBaseline, onInfoChange }: GraphPro
         tabIndex={0}
       >
         {getSelectionRect()}
+        {getRuler()}
         {getBaseline()}
         {lines.map((line, i) => (
           <polyline
@@ -225,7 +258,7 @@ function Graph({ label, dataKey, lines, centerBaseline, onInfoChange }: GraphPro
             points={pointsToPolyline(line.points)}
             fill="none"
             stroke={line.color}
-            strokeWidth={line.strokeWidth ?? 1.3}
+            strokeWidth={line.strokeWidth ?? settings.graphLineWidth}
           />
         ))}
         {getHoveredDot()}

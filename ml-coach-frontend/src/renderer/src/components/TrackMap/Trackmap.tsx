@@ -1,6 +1,8 @@
 import { useState, useRef, useEffect } from 'react'
 import styles from './Trackmap.module.css'
-import { useLapData, getLapColor } from '../../contexts/LapDataContext'
+import { useLapData } from '../../contexts/LapDataContext'
+import { useSettings } from '../../contexts/SettingsContext'
+import { calcElapsed, timeAtPct } from '../../utils/graphHelpers'
 import { toPixelPoints, screenToViewBox, CORNER_COLORS, PixelPoint } from './projection'
 import { usePanZoom } from './usePanZoom'
 
@@ -9,7 +11,8 @@ interface TrackmapProps {
 }
 
 function Trackmap({ onInfoChange }: TrackmapProps): React.JSX.Element {
-  const { laps, hoveredLapPct, setHoveredLapPct, cornerHighlight, allCornerHighlights } = useLapData()
+  const { laps, lapColors, hoveredLapPct, setHoveredLapPct, cornerHighlight, allCornerHighlights, referenceLapIndex } = useLapData()
+  const { settings } = useSettings()
   const [pixelPoints, setPixelPoints] = useState<PixelPoint[][]>([])
 
   const [hoveredPoints, setHoveredPoints] = useState<PixelPoint[]>([])
@@ -22,7 +25,12 @@ function Trackmap({ onInfoChange }: TrackmapProps): React.JSX.Element {
   const [svgOffsetY, setSvgOffsetY] = useState(0)
   const [savedMaps, setSavedMaps] = useState<string[]>([])
   const [showSaveInput, setShowSaveInput] = useState(false)
+  const [mapSearch, setMapSearch] = useState('')
+  const [dropdownOpen, setDropdownOpen] = useState(false)
+  const [timeSync, setTimeSync] = useState(false)
   const saveInputRef = useRef<HTMLInputElement>(null)
+  const dropdownRef = useRef<HTMLDivElement>(null)
+  const elapsedRef = useRef<number[][]>([])
 
   const svgRef = useRef<SVGSVGElement>(null)
   const svgInputRef = useRef<HTMLInputElement>(null)
@@ -31,52 +39,12 @@ function Trackmap({ onInfoChange }: TrackmapProps): React.JSX.Element {
 
   const { pan, scale, handlePanMouseDown, dragging } = usePanZoom(svgRef, containerRef, pixelPoints, cornerHighlight)
 
-  function startScrubScale(e: React.MouseEvent) {
+  function scrub(e: React.MouseEvent, startVal: number, setter: (v: number) => void, factor: number, min: number, max: number) {
     e.preventDefault()
     const startX = e.clientX
-    const startVal = svgScale
-    function onMove(e2: MouseEvent) {
-      const dx = e2.clientX - startX
-      setSvgScale(Math.max(0.1, Math.min(5, +(startVal + dx * 0.01).toFixed(2))))
-    }
-    function onUp() {
-      document.removeEventListener('mousemove', onMove)
-      document.removeEventListener('mouseup', onUp)
-    }
+    function onMove(e2: MouseEvent) { setter(Math.max(min, Math.min(max, startVal + (e2.clientX - startX) * factor))) }
     document.addEventListener('mousemove', onMove)
-    document.addEventListener('mouseup', onUp)
-  }
-
-  function startScrubOffsetX(e: React.MouseEvent) {
-    e.preventDefault()
-    const startX = e.clientX
-    const startVal = svgOffsetX
-    function onMove(e2: MouseEvent) {
-      const dx = e2.clientX - startX
-      setSvgOffsetX(Math.max(-800, Math.min(800, startVal + dx)))
-    }
-    function onUp() {
-      document.removeEventListener('mousemove', onMove)
-      document.removeEventListener('mouseup', onUp)
-    }
-    document.addEventListener('mousemove', onMove)
-    document.addEventListener('mouseup', onUp)
-  }
-
-  function startScrubOffset(e: React.MouseEvent) {
-    e.preventDefault()
-    const startX = e.clientX
-    const startVal = svgOffsetY
-    function onMove(e2: MouseEvent) {
-      const dx = e2.clientX - startX
-      setSvgOffsetY(Math.max(-800, Math.min(800, startVal + dx)))
-    }
-    function onUp() {
-      document.removeEventListener('mousemove', onMove)
-      document.removeEventListener('mouseup', onUp)
-    }
-    document.addEventListener('mousemove', onMove)
-    document.addEventListener('mouseup', onUp)
+    document.addEventListener('mouseup', () => document.removeEventListener('mousemove', onMove), { once: true })
   }
 
   function handleSvgImport(e: React.ChangeEvent<HTMLInputElement>) {
@@ -120,9 +88,28 @@ function Trackmap({ onInfoChange }: TrackmapProps): React.JSX.Element {
   }, [])
 
   useEffect(() => {
+    elapsedRef.current = laps.map((lap) => calcElapsed(lap.points))
+  }, [laps])
+
+  useEffect(() => {
+    if (!dropdownOpen) return
+    function onMouseDown(e: MouseEvent) {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) setDropdownOpen(false)
+    }
+    document.addEventListener('mousedown', onMouseDown)
+    return () => document.removeEventListener('mousedown', onMouseDown)
+  }, [dropdownOpen])
+
+  useEffect(() => {
     if (laps.length === 0) {
       setPixelPoints([])
       projectionBoundsRef.current = null
+      setSvgOverlay(null)
+      setSvgViewBox('0 0 800 800')
+      setSvgScale(1)
+      setSvgOffsetX(0)
+      setSvgOffsetY(0)
+      setShowSaveInput(false)
       return
     }
 
@@ -184,25 +171,42 @@ function Trackmap({ onInfoChange }: TrackmapProps): React.JSX.Element {
     }
 
     const found: PixelPoint[] = []
+    const times = elapsedRef.current
+    const refIdx = referenceLapIndex
+    const targetTime = timeSync && refIdx >= 0 && times[refIdx]
+      ? timeAtPct(laps[refIdx].points, times[refIdx], hoveredLapPct)
+      : null
+
     for (let i = 0; i < pixelPoints.length; i++) {
-      let closest: PixelPoint | null = null
+      let bestIdx = -1
       let minDiff = Infinity
-      for (const p of pixelPoints[i]) {
-        const diff = Math.abs(p.lapDistPct - hoveredLapPct)
-        if (diff < minDiff) {
-          minDiff = diff
-          closest = p
+
+      if (targetTime !== null && times[i]) {
+        for (let j = 0; j < times[i].length; j++) {
+          const diff = Math.abs(times[i][j] - targetTime)
+          if (diff < minDiff) { minDiff = diff; bestIdx = j }
+        }
+      } else {
+        for (let j = 0; j < pixelPoints[i].length; j++) {
+          const diff = Math.abs(pixelPoints[i][j].lapDistPct - hoveredLapPct)
+          if (diff < minDiff) { minDiff = diff; bestIdx = j }
         }
       }
-      if (closest && minDiff < 0.01) found.push(closest)
+
+      if (bestIdx >= 0 && pixelPoints[i][bestIdx] && (targetTime !== null || minDiff < 0.01)) {
+        found.push(pixelPoints[i][bestIdx])
+      }
     }
     setHoveredPoints(found)
-  }, [hoveredLapPct, pixelPoints])
+  }, [hoveredLapPct, pixelPoints, timeSync, referenceLapIndex, laps])
 
+  const filteredMaps = savedMaps.filter((n) => n.toLowerCase().includes(mapSearch.toLowerCase()))
+
+  const syncLabel = timeSync ? 'time' : 'dist'
   const trackmapInfo = hoveredPoints.length > 0
-    ? `Track Map | Hover: ${(hoveredPoints[0].lapDistPct * 100).toFixed(1)}%`
+    ? `Track Map (${syncLabel}) | Hover: ${(hoveredPoints[0].lapDistPct * 100).toFixed(1)}%`
     : laps.length > 0
-      ? 'Track Map'
+      ? `Track Map (${syncLabel})`
       : 'Track Map (import a lap)'
 
   useEffect(() => {
@@ -254,24 +258,28 @@ function Trackmap({ onInfoChange }: TrackmapProps): React.JSX.Element {
     <div className={styles.base}>
       <div style={{ display: 'flex', gap: 6, padding: '4px 8px', alignItems: 'center', fontSize: 12 }}>
         <button onClick={() => svgInputRef.current?.click()}>+ SVG</button>
+        <label style={{ cursor: 'pointer', userSelect: 'none' }}>
+          <input type="checkbox" checked={timeSync} onChange={(e) => setTimeSync(e.target.checked)} style={{ marginRight: 3 }} />
+          Time sync
+        </label>
         <input ref={svgInputRef} type="file" accept=".svg" style={{ display: 'none' }} onChange={handleSvgImport} />
         {svgOverlay && (
           <>
             <span
               style={{ cursor: 'ew-resize', userSelect: 'none' }}
-              onMouseDown={startScrubScale}
+              onMouseDown={(e) => scrub(e, svgScale, setSvgScale, 0.01, 0.1, 5)}
             >
               {svgScale.toFixed(2)}x
             </span>
             <span
               style={{ cursor: 'ew-resize', userSelect: 'none' }}
-              onMouseDown={startScrubOffsetX}
+              onMouseDown={(e) => scrub(e, svgOffsetX, setSvgOffsetX, 1, -800, 800)}
             >
               X {svgOffsetX}px
             </span>
             <span
               style={{ cursor: 'ew-resize', userSelect: 'none' }}
-              onMouseDown={startScrubOffset}
+              onMouseDown={(e) => scrub(e, svgOffsetY, setSvgOffsetY, 1, -800, 800)}
             >
               Y {svgOffsetY}px
             </span>
@@ -292,16 +300,36 @@ function Trackmap({ onInfoChange }: TrackmapProps): React.JSX.Element {
           </>
         )}
         {savedMaps.length > 0 && (
-          <select
-            style={{ fontSize: 11, padding: '1px 4px' }}
-            defaultValue=""
-            onChange={(e) => { const v = e.target.value; if (v) handleLoadMap(v) }}
-          >
-            <option value="" disabled>Maps</option>
-            {savedMaps.map((name) => (
-              <option key={name} value={name}>{name}</option>
-            ))}
-          </select>
+          <div ref={dropdownRef} style={{ position: 'relative', display: 'inline-block' }}>
+            <button onClick={() => { setDropdownOpen(!dropdownOpen); setMapSearch('') }}>Maps</button>
+            {dropdownOpen && (
+              <div style={{ position: 'absolute', top: '100%', left: 0, background: '#fff', border: '1px solid #ccc', zIndex: 1000, minWidth: 150 }}>
+                <input
+                  autoFocus
+                  style={{ width: 'calc(100% - 8px)', margin: 4, fontSize: 11, padding: '2px 4px', boxSizing: 'border-box' }}
+                  placeholder="search"
+                  value={mapSearch}
+                  onChange={(e) => setMapSearch(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === 'Enter' && filteredMaps[0]) { handleLoadMap(filteredMaps[0]); setDropdownOpen(false) }}}
+                />
+                <div style={{ maxHeight: 180, overflowY: 'auto' }}>
+                  {filteredMaps.length === 0 ? (
+                    <div style={{ padding: '2px 8px', fontSize: 11, color: '#999' }}>no matches</div>
+                  ) : filteredMaps.map((name) => (
+                    <div
+                      key={name}
+                      style={{ padding: '2px 8px', cursor: 'pointer', fontSize: 11, color: '#222' }}
+                      onClick={() => { handleLoadMap(name); setDropdownOpen(false) }}
+                      onMouseEnter={(e) => (e.currentTarget.style.background = '#eee')}
+                      onMouseLeave={(e) => (e.currentTarget.style.background = 'none')}
+                    >
+                      {name}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
         )}
       </div>
       <div className={styles.mapContainer} ref={containerRef}>
@@ -317,7 +345,7 @@ function Trackmap({ onInfoChange }: TrackmapProps): React.JSX.Element {
           <g transform={`translate(${pan.x}, ${pan.y}) scale(${scale})`}>
             {svgOverlay && (
               <g
-                opacity={0.5}
+                opacity={0.3}
                 transform={`translate(${svgOffsetX + (800 - 800 * svgScale) / 2}, ${svgOffsetY + (800 - 800 * svgScale) / 2}) scale(${svgScale})`}
               >
                 <svg viewBox={svgViewBox} width={800} height={800} dangerouslySetInnerHTML={{ __html: svgOverlay }} />
@@ -370,25 +398,36 @@ function Trackmap({ onInfoChange }: TrackmapProps): React.JSX.Element {
                 key={i}
                 points={pts.map((p) => `${p.x},${p.y}`).join(' ')}
                 fill="none"
-                stroke={getLapColor(i)}
-                strokeWidth={1.3 / scale}
+                stroke={lapColors[i]}
+                strokeWidth={settings.trackLineWidth / scale}
               />
             ))}
             {hoveredPoints.map((p, i) => (
               <g key={i}>
-                <circle cx={p.x} cy={p.y} r={7 / Math.min(3, scale)} fill={getLapColor(p.lapIndex)} />
+                <circle cx={p.x} cy={p.y} r={settings.trackDotRadius / Math.min(3, scale)} fill={lapColors[p.lapIndex]} />
                 <line
                   x1={p.x} y1={p.y}
-                  x2={p.x + Math.sin(p.yaw) * 16 / Math.min(2, scale)}
-                  y2={p.y - Math.cos(p.yaw) * 16 / Math.min(2, scale)}
-                  stroke={getLapColor(p.lapIndex)}
-                  strokeWidth={2.5 / Math.min(4, scale)}
+                  x2={p.x + Math.sin(p.yaw) * settings.trackDotRadius * 2.3 / Math.min(2, scale)}
+                  y2={p.y - Math.cos(p.yaw) * settings.trackDotRadius * 2.3 / Math.min(2, scale)}
+                  stroke={lapColors[p.lapIndex]}
+                  strokeWidth={(settings.trackDotRadius * 0.35 + 2) / Math.min(4, scale)}
                   strokeLinecap="round"
                 />
               </g>
             ))}
           </g>
         </svg>
+        {laps.length > 1 && (
+          <div style={{ position: 'absolute', top: 8, left: 8, background: 'rgba(0,0,0,0.55)', color: '#eee', fontSize: 11, padding: '4px 8px', borderRadius: 4, lineHeight: 1.6 }}>
+            {laps.map((lap, i) => (
+              <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <span style={{ width: 10, height: 10, borderRadius: 2, background: lapColors[i], display: 'inline-block', flexShrink: 0 }} />
+                <span style={{ maxWidth: 350, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{lap.name}</span>
+                <span style={{ color: '#999' }}>{lap.totalTime.toFixed(1)}s</span>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   )

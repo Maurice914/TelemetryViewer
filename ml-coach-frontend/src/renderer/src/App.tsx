@@ -4,6 +4,7 @@ import Splitter from './components/Splitter/Splitter'
 import PaneSelector from './components/PaneSelector/PaneSelector'
 import Toolbar from './components/Toolbar/Toolbar'
 import { LapDataProvider } from './contexts/LapDataContext'
+import { SettingsProvider } from './contexts/SettingsContext'
 
 const STORAGE_KEY = 'telemetry-viewer-layout'
 
@@ -81,6 +82,7 @@ function App(): React.JSX.Element {
   const { leftPanes, rightPanes, outerSizes, leftSizes, rightSizes, setOuterSizes, setLeftSizes, setRightSizes, addPane, removePane, updatePane } = usePaneState(initial)
 
   return (
+    <SettingsProvider>
     <LapDataProvider>
       <div
         style={{
@@ -118,6 +120,7 @@ function App(): React.JSX.Element {
         </div>
       </div>
     </LapDataProvider>
+    </SettingsProvider>
   )
 }
 

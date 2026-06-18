@@ -1,60 +1,14 @@
 import { useRef, useState, useEffect } from 'react'
-import { useLapData, getLapColor, LapData } from '../../contexts/LapDataContext'
+import { useLapData } from '../../contexts/LapDataContext'
+import { useSettings } from '../../contexts/SettingsContext'
 import { useGraphSelection } from '../../hooks/useGraphSelection'
+import { calcElapsed, timeAtPct, niceTicks } from '../../utils/graphHelpers'
 import Tooltip from './Tooltip'
+
+const RULER_W = 32
 
 interface TimeDeltaGraphProps {
   onInfoChange?: (text: string) => void
-}
-
-function haversineDistance(lat1: number, lon1: number, lat2: number, lon2: number): number {
-  const R = 6371000
-  const lat1Rad = (lat1 * Math.PI) / 180
-  const lat2Rad = (lat2 * Math.PI) / 180
-  const deltaLat = ((lat2 - lat1) * Math.PI) / 180
-  const deltaLon = ((lon2 - lon1) * Math.PI) / 180
-
-  const a =
-    Math.sin(deltaLat / 2) * Math.sin(deltaLat / 2) +
-    Math.cos(lat1Rad) * Math.cos(lat2Rad) * Math.sin(deltaLon / 2) * Math.sin(deltaLon / 2)
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
-
-  return R * c
-}
-
-function calculateTimeElapsed(points: LapData['points']): number[] {
-  const times: number[] = [0]
-  for (let i = 1; i < points.length; i++) {
-    const speedMs = points[i].speed
-    if (speedMs <= 0) {
-      times.push(times[i - 1])
-      continue
-    }
-    const dDist = haversineDistance(
-      points[i - 1].lat,
-      points[i - 1].lon,
-      points[i].lat,
-      points[i].lon
-    )
-    times.push(times[i - 1] + dDist / speedMs)
-  }
-  return times
-}
-
-function interpolateTimeAtPct(
-  points: LapData['points'],
-  times: number[],
-  targetPct: number
-): number {
-  for (let i = 0; i < points.length - 1; i++) {
-    const pct1 = points[i].lapDistPct
-    const pct2 = points[i + 1].lapDistPct
-    if (targetPct >= pct1 && targetPct <= pct2) {
-      const t = (targetPct - pct1) / (pct2 - pct1)
-      return times[i] + t * (times[i + 1] - times[i])
-    }
-  }
-  return times[times.length - 1]
 }
 
 interface LapDelta {
@@ -65,13 +19,15 @@ interface LapDelta {
 }
 
 function TimeDeltaGraph({ onInfoChange }: TimeDeltaGraphProps) {
-  const { laps, referenceLapIndex, hoveredLapPct, setHoveredLapPct, selection } = useLapData()
+  const { laps, lapColors, referenceLapIndex, hoveredLapPct, setHoveredLapPct, selection } = useLapData()
+  const { settings } = useSettings()
   const svgRef = useRef<SVGSVGElement>(null)
   const [hoveredPct, setHoveredPct] = useState<number | null>(null)
   const [isLocalHover, setIsLocalHover] = useState(false)
   const [mousePos, setMousePos] = useState({ clientX: 0, clientY: 0 })
 
-  const { isSelecting, getPctFromMouse, handleMouseDown: selectionMouseDown, trySelectInMove, handleMouseUp: selectionMouseUp, handleKeyDown: selectionKeyDown, getSelectionRect } = useGraphSelection(svgRef)
+  const rulerOff = settings.showRuler ? RULER_W : 0
+  const { isSelecting, getPctFromMouse, handleMouseDown: selectionMouseDown, trySelectInMove, handleMouseUp: selectionMouseUp, handleKeyDown: selectionKeyDown, getSelectionRect } = useGraphSelection(svgRef, rulerOff)
 
   const displayHoveredPct = isLocalHover ? hoveredPct : hoveredLapPct
 
@@ -82,23 +38,23 @@ function TimeDeltaGraph({ onInfoChange }: TimeDeltaGraphProps) {
   if (laps.length >= 2 && referenceLapIndex >= 0) {
     const refLap = laps[referenceLapIndex]
     const sortedRef = [...refLap.points].sort((a, b) => a.lapDistPct - b.lapDistPct)
-    const refTimes = calculateTimeElapsed(sortedRef)
+    const refTimes = calcElapsed(sortedRef)
 
     for (let i = 0; i < laps.length; i++) {
       if (i === referenceLapIndex) continue
       const lap = laps[i]
       const sortedLap = [...lap.points].sort((a, b) => a.lapDistPct - b.lapDistPct)
-      const lapTimes = calculateTimeElapsed(sortedLap)
+      const lapTimes = calcElapsed(sortedLap)
 
       const deltas: number[] = []
       const numPoints = 1000
       for (let j = 0; j < numPoints; j++) {
         const targetPct = j / numPoints
-        const refTimeAtPct = interpolateTimeAtPct(sortedRef, refTimes, targetPct)
-        const lapTimeAtPct = interpolateTimeAtPct(sortedLap, lapTimes, targetPct)
+        const refTimeAtPct = timeAtPct(sortedRef, refTimes, targetPct)
+        const lapTimeAtPct = timeAtPct(sortedLap, lapTimes, targetPct)
         deltas.push(lapTimeAtPct - refTimeAtPct)
       }
-      lapDeltas.push({ index: i, name: lap.name, color: getLapColor(i), deltas })
+      lapDeltas.push({ index: i, name: lap.name, color: lapColors[i], deltas })
       allDeltas.push(...deltas)
     }
   }
@@ -158,6 +114,8 @@ function TimeDeltaGraph({ onInfoChange }: TimeDeltaGraphProps) {
     if (!svg) return ''
 
     const width = svg.clientWidth
+    const dataW = width - (settings.showRuler ? RULER_W : 0)
+    const offsetX = settings.showRuler ? RULER_W : 0
     const height = svg.clientHeight
 
     function deltaToY(delta: number): number {
@@ -173,7 +131,7 @@ function TimeDeltaGraph({ onInfoChange }: TimeDeltaGraphProps) {
       for (let i = 0; i < targetN; i++) {
         const idx = Math.floor(i * step)
         const pct = idx / origN
-        const x = pct * width
+        const x = offsetX + pct * dataW
         const y = deltaToY(ld.deltas[idx])
         parts.push(`${x},${y}`)
       }
@@ -187,7 +145,7 @@ function TimeDeltaGraph({ onInfoChange }: TimeDeltaGraphProps) {
       const idx = Math.floor(i * step)
       const pct = idx / origN
       if (pct < startPct || pct > endPct) continue
-      const x = ((pct - startPct) / selRange) * width
+      const x = offsetX + ((pct - startPct) / selRange) * dataW
       const y = deltaToY(ld.deltas[idx])
       parts.push(`${x},${y}`)
     }
@@ -199,11 +157,12 @@ function TimeDeltaGraph({ onInfoChange }: TimeDeltaGraphProps) {
     const svg = svgRef.current
     if (!svg) return null
     const width = svg.clientWidth
+    const offsetX = settings.showRuler ? RULER_W : 0
     const height = svg.clientHeight
 
     const y = height * (1 - (0 - minDelta) / deltaRange)
     return (
-      <line x1={0} y1={y} x2={width} y2={y} stroke="#999" strokeWidth="1" strokeDasharray="4,4" />
+      <line x1={offsetX} y1={y} x2={width} y2={y} stroke="#999" strokeWidth="1" strokeDasharray="4,4" />
     )
   }
 
@@ -221,9 +180,11 @@ function TimeDeltaGraph({ onInfoChange }: TimeDeltaGraphProps) {
     // Show dot for the first lap delta only
     const delta = lapDeltas[0].deltas[idx]
     const y = height * (1 - (delta - minDelta) / deltaRange)
-    const x = selection
-      ? ((displayHoveredPct - selection.startPct) / (selection.endPct - selection.startPct)) * width
-      : displayHoveredPct * width
+    const offsetX = settings.showRuler ? RULER_W : 0
+    const dataW = width - offsetX
+    const x = offsetX + (selection
+      ? ((displayHoveredPct - selection.startPct) / (selection.endPct - selection.startPct)) * dataW
+      : displayHoveredPct * dataW)
     return <circle cx={x} cy={y} r="3" fill={lapDeltas[0].color} />
   }
 
@@ -234,6 +195,29 @@ function TimeDeltaGraph({ onInfoChange }: TimeDeltaGraphProps) {
     const name = lapDeltas[0].name
     return `${name}: ${delta >= 0 ? '+' : ''}${delta.toFixed(3)}s`
   })()
+
+  function getRuler() {
+    if (!settings.showRuler) return null
+    const svg = svgRef.current
+    if (!svg) return null
+    const width = svg.clientWidth
+    const height = svg.clientHeight
+    const ticks = niceTicks(minDelta, maxDelta)
+    return (
+      <g>
+        <rect x={0} y={0} width={RULER_W} height={height} fill="#fafafa" stroke="#ddd" />
+        {ticks.map((tick, i) => {
+          const y = height * (1 - (tick - minDelta) / deltaRange)
+          return (
+            <g key={i}>
+              <line x1={RULER_W} y1={y} x2={width} y2={y} stroke="#eee" strokeWidth={1} />
+              <text x={3} y={y + 3} fontSize={9} fill="#888">{(tick >= 0 ? '+' : '') + tick.toFixed(1)}</text>
+            </g>
+          )
+        })}
+      </g>
+    )
+  }
 
   return (
     <div style={{ width: '100%', height: '100%', display: 'flex', flexDirection: 'column' }}>
@@ -251,6 +235,7 @@ function TimeDeltaGraph({ onInfoChange }: TimeDeltaGraphProps) {
           tabIndex={0}
         >
           {getSelectionRect()}
+          {getRuler()}
           {getZeroLine()}
           {lapDeltas.map((ld) => (
             <polyline
@@ -258,7 +243,7 @@ function TimeDeltaGraph({ onInfoChange }: TimeDeltaGraphProps) {
               points={getPolylinePoints(ld)}
               fill="none"
               stroke={ld.color}
-              strokeWidth="1.3"
+              strokeWidth={settings.graphLineWidth}
             />
           ))}
           {getHoveredDot()}

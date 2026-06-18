@@ -1,5 +1,6 @@
-import { createContext, useContext, useState, useCallback, ReactNode } from 'react'
+import { createContext, useContext, useState, useCallback, useMemo, ReactNode } from 'react'
 import { Point } from '../utils/csvParser'
+import { useSettings } from './SettingsContext'
 
 const MAX_LAPS = 10
 
@@ -38,6 +39,7 @@ export interface LapData {
 
 interface LapDataContextType {
   laps: LapData[]
+  lapColors: string[]
   addLap: (points: Point[], name: string) => void
   removeLap: (index: number) => void
   clearLaps: () => void
@@ -79,6 +81,11 @@ const LapDataContext = createContext<LapDataContextType | null>(null)
 
 export function LapDataProvider({ children }: { children: ReactNode }) {
   const [laps, setLaps] = useState<LapData[]>([])
+  const { settings } = useSettings()
+  const lapColors = useMemo(
+    () => laps.map((lap, i) => settings.lapColors[lap.name] ?? LAP_COLORS[i % LAP_COLORS.length]),
+    [laps, settings.lapColors]
+  )
   const [hoveredLapPct, setHoveredLapPct] = useState<number | null>(null)
   const [selection, setSelection] = useState<{ startPct: number; endPct: number } | null>(null)
   const [dragSelection, setDragSelection] = useState<{ startPct: number; endPct: number } | null>(
@@ -114,6 +121,7 @@ export function LapDataProvider({ children }: { children: ReactNode }) {
     <LapDataContext.Provider
       value={{
         laps,
+        lapColors,
         addLap,
         removeLap,
         clearLaps,
