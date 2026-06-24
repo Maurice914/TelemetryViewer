@@ -3,6 +3,7 @@ import { join } from 'path'
 import { readFileSync, writeFileSync, unlinkSync, mkdirSync, readdirSync, existsSync } from 'fs'
 import { execFile } from 'child_process'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
+import { autoUpdater } from 'electron-updater'
 
 function createWindow(): void {
   const mainWindow = new BrowserWindow({
@@ -37,7 +38,7 @@ app.whenReady().then(() => {
   process.on('unhandledRejection', (err) => console.error('Unhandled rejection:', err))
   process.on('uncaughtException', (err) => console.error('Uncaught exception:', err))
 
-  electronApp.setAppUserModelId('com.electron')
+  electronApp.setAppUserModelId('com.maurice914.telemetryviewer')
 
   app.on('browser-window-created', (_, window) => {
     optimizer.watchWindowShortcuts(window)
@@ -119,6 +120,13 @@ app.whenReady().then(() => {
   })
 
   createWindow()
+
+  if (!is.dev) {
+    autoUpdater.checkForUpdatesAndNotify()
+    autoUpdater.on('update-downloaded', () => {
+      autoUpdater.quitAndInstall()
+    })
+  }
 
   app.on('activate', function () {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()

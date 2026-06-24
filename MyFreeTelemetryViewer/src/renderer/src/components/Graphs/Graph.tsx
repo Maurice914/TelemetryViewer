@@ -85,12 +85,12 @@ function Graph({ dataKey, lines, centerBaseline, onInfoChange }: GraphProps) {
 
   let headerText = ''
   if (isSelecting) {
-    headerText = `Selecting: ${(selectStart * 100).toFixed(1)}% - ${(selectEnd * 100).toFixed(1)}%`
+    headerText = `${(selectStart * 100).toFixed(1)}% - ${(selectEnd * 100).toFixed(1)}%`
   } else if (selection) {
-    headerText = `Zoomed: ${(selection.startPct * 100).toFixed(1)}% - ${(selection.endPct * 100).toFixed(1)}%`
+    headerText = `${(selection.startPct * 100).toFixed(1)}% - ${(selection.endPct * 100).toFixed(1)}%`
   }
   if (displayInfo && displayInfo.length > 0) {
-    headerText += `${headerText ? ' | ' : ''}Hover: ${(displayInfo[0].point.lapDistPct * 100).toFixed(1)}%`
+    headerText += `${headerText ? ' | ' : ''}${(displayInfo[0].point.lapDistPct * 100).toFixed(1)}%`
   }
 
   useEffect(() => {

@@ -167,7 +167,7 @@ function Trackmap({ onInfoChange }: TrackmapProps): React.JSX.Element {
 
   const syncLabel = timeSync ? 'time' : 'dist'
   const trackmapInfo = hoveredPoints.length > 0
-    ? `Track Map (${syncLabel}) | Hover: ${(hoveredPoints[0].lapDistPct * 100).toFixed(1)}%`
+    ? `Track Map (${syncLabel}) | ${(hoveredPoints[0].lapDistPct * 100).toFixed(1)}%`
     : laps.length > 0
       ? `Track Map (${syncLabel})`
       : 'Track Map (import a lap)'

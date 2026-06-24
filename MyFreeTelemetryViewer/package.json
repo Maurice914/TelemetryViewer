@@ -1,9 +1,10 @@
 {
   "name": "MyFreeTelemetryViewer",
-  "version": "0.6.0",
-  "description": "An Electron application with React and TypeScript",
+  "version": "1.0.0",
+  "repository": "Maurice914/TelemtryViewer",
+  "description": "A free telemetry viewer for iRacing with a focus on customization.",
   "main": "./out/main/index.js",
-  "author": "example.com",
+  "author": "Maurice Abreu",
   "scripts": {
     "format": "prettier --write .",
     "lint": "eslint --cache .",
@@ -21,7 +22,8 @@
   },
   "dependencies": {
     "@electron-toolkit/preload": "^3.0.2",
-    "@electron-toolkit/utils": "^4.0.0"
+    "@electron-toolkit/utils": "^4.0.0",
+    "electron-updater": "^6.8.9"
   },
   "devDependencies": {
     "@electron-toolkit/eslint-config-prettier": "^3.0.0",

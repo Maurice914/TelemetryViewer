@@ -41,6 +41,7 @@ function EmptyPlaceholder() {
 }
 
 function PaneSelector({ defaultComponent = 'empty', onRemove, onComponentChange }: PaneSelectorProps) {
+  const { selection, setSelection } = useLapData()
   const [infoText, setInfoText] = useState('')
 
   function handlePaneChange(e: React.ChangeEvent<HTMLSelectElement>) {
@@ -81,6 +82,24 @@ function PaneSelector({ defaultComponent = 'empty', onRemove, onComponentChange 
           <option value="empty">Empty</option>
         </select>
         {infoText && <span style={{ flex: 1 }}>{infoText}</span>}
+        {selection && (
+          <button
+            onClick={() => setSelection(null)}
+            style={{
+              cursor: 'pointer',
+              color: '#333',
+              fontSize: 12,
+              padding: '1px 8px',
+              lineHeight: 1.4,
+              border: '1px solid #888',
+              borderRadius: 3,
+              background: '#e8e8e8'
+            }}
+            title="Clear zoom"
+          >
+            Unzoom
+          </button>
+        )}
         {onRemove && (
           <button
             onClick={onRemove}
