@@ -4,6 +4,7 @@ import Trackmap from '../TrackMap/Trackmap'
 import Graph, { DataKey } from '../Graphs/Graph'
 import TimeDeltaGraph from '../Graphs/TimeDeltaGraph'
 import CoachingReport from '../CoachingReport/CoachingReport'
+import styles from './PaneSelector.module.css'
 
 function makeGraph(dataKey: DataKey, centerBaseline?: boolean) {
   return function Wrapper({ onInfoChange }: { onInfoChange?: (text: string) => void }) {
@@ -18,6 +19,7 @@ interface PaneSelectorProps {
   defaultComponent?: string
   onRemove?: () => void
   onComponentChange?: (componentId: string) => void
+  onAddPane?: () => void
 }
 
 const COMPONENTS: Record<
@@ -40,7 +42,7 @@ function EmptyPlaceholder() {
   return null
 }
 
-function PaneSelector({ defaultComponent = 'empty', onRemove, onComponentChange }: PaneSelectorProps) {
+function PaneSelector({ defaultComponent = 'empty', onRemove, onComponentChange, onAddPane }: PaneSelectorProps) {
   const { selection, setSelection } = useLapData()
   const [infoText, setInfoText] = useState('')
 
@@ -52,24 +54,9 @@ function PaneSelector({ defaultComponent = 'empty', onRemove, onComponentChange 
   const Component = COMPONENTS[defaultComponent] ?? COMPONENTS.empty
 
   return (
-    <div style={{ width: '100%', height: '100%', display: 'flex', flexDirection: 'column' }}>
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: 8,
-          padding: '2px 4px',
-          fontSize: 14,
-          flexShrink: 0,
-          borderBottom: '1px solid #ccc',
-          background: '#f5f5f5'
-        }}
-      >
-        <select
-          value={defaultComponent}
-          onChange={handlePaneChange}
-          style={{ fontSize: 13, padding: '1px 4px' }}
-        >
+    <div className={styles.pane}>
+      <div className={styles.header}>
+        <select className={styles.select} value={defaultComponent} onChange={handlePaneChange}>
           <option value="trackmap">Track Map</option>
           <option value="throttle">Throttle</option>
           <option value="brake">Brake</option>
@@ -81,44 +68,25 @@ function PaneSelector({ defaultComponent = 'empty', onRemove, onComponentChange 
           <option value="coaching">Coaching Report</option>
           <option value="empty">Empty</option>
         </select>
-        {infoText && <span style={{ flex: 1 }}>{infoText}</span>}
+        {infoText && <span className={styles.infoText}>{infoText}</span>}
         {selection && (
-          <button
-            onClick={() => setSelection(null)}
-            style={{
-              cursor: 'pointer',
-              color: '#333',
-              fontSize: 12,
-              padding: '1px 8px',
-              lineHeight: 1.4,
-              border: '1px solid #888',
-              borderRadius: 3,
-              background: '#e8e8e8'
-            }}
-            title="Clear zoom"
-          >
+          <button className={styles.unzoomBtn} onClick={() => setSelection(null)} title="Clear zoom">
             Unzoom
           </button>
         )}
+        <span className={styles.spacer} />
+        {onAddPane && (
+          <button className={styles.addBtn} onClick={onAddPane} title="Add pane">
+            +
+          </button>
+        )}
         {onRemove && (
-          <button
-            onClick={onRemove}
-            style={{
-              background: 'none',
-              border: 'none',
-              cursor: 'pointer',
-              color: '#999',
-              fontSize: 13,
-              padding: '0 2px',
-              lineHeight: 1
-            }}
-            title="Remove pane"
-          >
+          <button className={styles.removeBtn} onClick={onRemove} title="Remove pane">
             ✕
           </button>
         )}
       </div>
-      <div style={{ flex: 1, overflow: 'hidden', margin: 4 }}>
+      <div className={styles.content}>
         <Component onInfoChange={setInfoText} />
       </div>
     </div>

@@ -94,25 +94,27 @@ function App(): React.JSX.Element {
         }}
       >
         <Toolbar />
-        <div style={{ flex: 1, overflow: 'hidden' }}>
+        <div style={{ flex: 1, overflow: 'hidden', padding: 8 }}>
           <Splitter orientation="vertical" initialSizes={outerSizes} onSizesChange={setOuterSizes}>
-            <Splitter orientation="horizontal" onAdd={() => addPane('left')} initialSizes={leftSizes} onSizesChange={setLeftSizes}>
+            <Splitter orientation="horizontal" initialSizes={leftSizes} onSizesChange={setLeftSizes}>
               {leftPanes.map((comp, i) => (
                 <PaneSelector
                   key={`left-${i}`}
                   defaultComponent={comp}
                   onRemove={leftPanes.length > 1 ? () => removePane('left', i) : undefined}
                   onComponentChange={(id) => updatePane('left', i, id)}
+                  onAddPane={() => addPane('left')}
                 />
               ))}
             </Splitter>
-            <Splitter orientation="horizontal" onAdd={() => addPane('right')} initialSizes={rightSizes} onSizesChange={setRightSizes}>
+            <Splitter orientation="horizontal" initialSizes={rightSizes} onSizesChange={setRightSizes}>
               {rightPanes.map((comp, i) => (
                 <PaneSelector
                   key={`right-${i}`}
                   defaultComponent={comp}
                   onRemove={rightPanes.length > 1 ? () => removePane('right', i) : undefined}
                   onComponentChange={(id) => updatePane('right', i, id)}
+                  onAddPane={() => addPane('right')}
                 />
               ))}
             </Splitter>
