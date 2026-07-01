@@ -210,7 +210,7 @@ function Trackmap({ onInfoChange }: TrackmapProps): React.JSX.Element {
   if (laps.length === 0) {
     return (
       <div className={styles.base}>
-        <div style={{ padding: 16, color: '#888', fontSize: 13 }}>
+        <div style={{ padding: 16, color: 'var(--color-text-placeholder)', fontSize: 13 }}>
           No lap data — use File → Import Lap
         </div>
       </div>
@@ -220,7 +220,7 @@ function Trackmap({ onInfoChange }: TrackmapProps): React.JSX.Element {
   return (
     <div className={styles.base}>
       <div style={{ display: 'flex', gap: 6, padding: '4px 8px', alignItems: 'center', fontSize: 12 }}>
-        {import.meta.env.DEV && <button onClick={() => svgInputRef.current?.click()}>+ SVG</button>}
+        {import.meta.env.DEV && <button style={{ background: 'var(--color-bg)', border: '1px solid var(--color-border)', color: 'var(--color-text)', cursor: 'pointer', fontSize: 12, padding: '1px 6px', borderRadius: 4 }} onClick={() => svgInputRef.current?.click()}>+ SVG</button>}
         <label style={{ cursor: 'pointer', userSelect: 'none' }}>
           <input type="checkbox" checked={timeSync} onChange={(e) => setTimeSync(e.target.checked)} style={{ marginRight: 3 }} />
           Time sync
@@ -231,19 +231,19 @@ function Trackmap({ onInfoChange }: TrackmapProps): React.JSX.Element {
             {import.meta.env.DEV && (
               <>
                 <span
-                  style={{ cursor: 'ew-resize', userSelect: 'none' }}
+                  style={{ cursor: 'ew-resize', userSelect: 'none', color: 'var(--color-text)' }}
                   onMouseDown={(e) => scrub(e, svgScale, setSvgScale, 0.01, 0.1, 5)}
                 >
                   {svgScale.toFixed(2)}x
                 </span>
                 <span
-                  style={{ cursor: 'ew-resize', userSelect: 'none' }}
+                  style={{ cursor: 'ew-resize', userSelect: 'none', color: 'var(--color-text)' }}
                   onMouseDown={(e) => scrub(e, svgOffsetX, setSvgOffsetX, 1, -800, 800)}
                 >
                   X {svgOffsetX}px
                 </span>
                 <span
-                  style={{ cursor: 'ew-resize', userSelect: 'none' }}
+                  style={{ cursor: 'ew-resize', userSelect: 'none', color: 'var(--color-text)' }}
                   onMouseDown={(e) => scrub(e, svgOffsetY, setSvgOffsetY, 1, -800, 800)}
                 >
                   Y {svgOffsetY}px
@@ -259,18 +259,18 @@ function Trackmap({ onInfoChange }: TrackmapProps): React.JSX.Element {
                     />
                   </form>
                 ) : (
-                  <button onClick={() => setShowSaveInput(true)}>Save</button>
+                  <button style={{ background: 'var(--color-bg)', border: '1px solid var(--color-border)', color: 'var(--color-text)', cursor: 'pointer', fontSize: 12, padding: '1px 6px', borderRadius: 4 }} onClick={() => setShowSaveInput(true)}>Save</button>
                 )}
               </>
             )}
-            <button onClick={() => { setSvgOverlay(null); setSvgScale(1); setSvgOffsetX(0); setSvgOffsetY(0) }}>Remove</button>
+            <button style={{ background: 'var(--color-bg)', border: '1px solid var(--color-border)', color: 'var(--color-text)', cursor: 'pointer', fontSize: 12, padding: '1px 6px', borderRadius: 4 }} onClick={() => { setSvgOverlay(null); setSvgScale(1); setSvgOffsetX(0); setSvgOffsetY(0) }}>Remove</button>
           </>
         )}
         {savedMaps.length > 0 && (
           <div ref={dropdownRef} style={{ position: 'relative', display: 'inline-block' }}>
-            <button onClick={() => { setDropdownOpen(!dropdownOpen); setMapSearch('') }}>Tracks</button>
+            <button style={{ background: 'var(--color-bg)', border: '1px solid var(--color-border)', color: 'var(--color-text)', cursor: 'pointer', fontSize: 12, padding: '1px 6px', borderRadius: 4 }} onClick={() => { setDropdownOpen(!dropdownOpen); setMapSearch('') }}>Tracks</button>
             {dropdownOpen && (
-              <div style={{ position: 'absolute', top: '100%', left: 0, background: '#fff', border: '1px solid #ccc', zIndex: 1000, minWidth: 150 }}>
+              <div style={{ position: 'absolute', top: '100%', left: 0, background: 'var(--color-bg)', border: '1px solid var(--color-border)', zIndex: 1000, minWidth: 150 }}>
                 <input
                   autoFocus
                   style={{ width: 'calc(100% - 8px)', margin: 4, fontSize: 11, padding: '2px 4px', boxSizing: 'border-box' }}
@@ -281,13 +281,13 @@ function Trackmap({ onInfoChange }: TrackmapProps): React.JSX.Element {
                 />
                 <div style={{ maxHeight: 180, overflowY: 'auto' }}>
                   {filteredMaps.length === 0 ? (
-                    <div style={{ padding: '2px 8px', fontSize: 11, color: '#999' }}>no matches</div>
+                    <div style={{ padding: '2px 8px', fontSize: 11, color: 'var(--color-muted)' }}>no matches</div>
                   ) : filteredMaps.map((name) => (
                     <div
                       key={name}
-                      style={{ padding: '2px 8px', cursor: 'pointer', fontSize: 11, color: '#222' }}
+                      style={{ padding: '2px 8px', cursor: 'pointer', fontSize: 11, color: 'var(--color-text)' }}
                       onClick={() => { handleLoadMap(name); setDropdownOpen(false) }}
-                      onMouseEnter={(e) => (e.currentTarget.style.background = '#eee')}
+                      onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--color-hover)')}
                       onMouseLeave={(e) => (e.currentTarget.style.background = 'none')}
                     >
                       {name}
@@ -385,12 +385,12 @@ function Trackmap({ onInfoChange }: TrackmapProps): React.JSX.Element {
           </g>
         </svg>
         {laps.length > 1 && (
-          <div style={{ position: 'absolute', top: 8, left: 8, background: 'rgba(0,0,0,0.55)', color: '#eee', fontSize: 11, padding: '4px 8px', borderRadius: 4, lineHeight: 1.6 }}>
+          <div style={{ position: 'absolute', top: 8, left: 8, background: 'rgba(0,0,0,0.55)', color: 'var(--color-text)', fontSize: 11, padding: '4px 8px', borderRadius: 4, lineHeight: 1.6 }}>
             {laps.map((lap, i) => (
               <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                 <span style={{ width: 10, height: 10, borderRadius: 2, background: lapColors[i], display: 'inline-block', flexShrink: 0 }} />
                 <span style={{ maxWidth: 350, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{lap.name}</span>
-                <span style={{ color: '#999' }}>{lap.totalTime.toFixed(1)}s</span>
+                <span style={{ color: 'var(--color-muted)' }}>{lap.totalTime.toFixed(1)}s</span>
               </div>
             ))}
           </div>

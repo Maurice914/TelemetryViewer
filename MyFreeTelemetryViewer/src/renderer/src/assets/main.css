@@ -1,5 +1,24 @@
+:root {
+  --color-bg: #0f0f0f;
+  --color-text: #ccc;
+  --color-text-secondary: #aaa;
+  --color-text-placeholder: #888;
+  --color-muted: #999;
+  --color-glass: rgba(255,255,255,0.04);
+  --color-border: rgba(255,255,255,0.15);
+  --color-border-header: rgba(255,255,255,0.08);
+  --color-hover: #333;
+}
+
 body {
-  font-family: Arial, sans-serif;
+  font-family: monospace;
   margin: 0;
   padding: 0;
+  background: var(--color-bg);
+  color: #ccc;
+}
+
+select, button, input, label, textarea {
+  color: inherit;
+  outline: none;
 }

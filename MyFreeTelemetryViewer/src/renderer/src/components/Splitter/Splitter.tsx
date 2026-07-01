@@ -5,12 +5,11 @@ interface SplitterProps {
   orientation: 'vertical' | 'horizontal'
   children: ReactNode[]
   minSize?: number
-  onAdd?: () => void
   initialSizes?: number[]
   onSizesChange?: (sizes: number[]) => void
 }
 
-function Splitter({ orientation, children, minSize = 8, onAdd, initialSizes, onSizesChange }: SplitterProps) {
+function Splitter({ orientation, children, minSize = 8, initialSizes, onSizesChange }: SplitterProps) {
   const [sizes, setSizes] = useState<number[]>(() => {
     if (initialSizes && initialSizes.length === children.length) return initialSizes
     return children.map(() => 100 / children.length)
@@ -83,7 +82,7 @@ function Splitter({ orientation, children, minSize = 8, onAdd, initialSizes, onS
         <div
           key={`div-${i}`}
           className={styles.splitter}
-          style={{ [dim]: 2, cursor, flexShrink: 0 }}
+          style={{ [dim]: 5, cursor, flexShrink: 0 }}
           onMouseDown={(e) => onDividerMouseDown(e, i - 1)}
         />
       )
@@ -91,38 +90,12 @@ function Splitter({ orientation, children, minSize = 8, onAdd, initialSizes, onS
     items.push(
       <div
         key={`child-${i}`}
-        style={{ flex: `${sizes[i]} 1 0`, overflow: 'hidden', minHeight: 0, minWidth: 0 }}
+        style={{ flex: `${sizes[i]} 1 0`, minHeight: 0, minWidth: 0 }}
       >
         {children[i]}
       </div>
     )
   }
-  if (onAdd) {
-    items.push(
-      <div
-        key="add"
-        onClick={onAdd}
-        style={{
-          flexShrink: 0,
-          [dim]: 22,
-          cursor: 'pointer',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          fontSize: 16,
-          fontWeight: 700,
-          color: '#999',
-          borderTop: orientation !== 'vertical' ? '1px solid #ccc' : undefined,
-          borderLeft: orientation === 'vertical' ? '1px solid #ccc' : undefined,
-          userSelect: 'none'
-        }}
-        title="Add pane"
-      >
-        +
-      </div>
-    )
-  }
-
   return (
     <div
       ref={containerRef}
@@ -131,7 +104,9 @@ function Splitter({ orientation, children, minSize = 8, onAdd, initialSizes, onS
         flexDirection: orientation === 'vertical' ? 'row' : 'column',
         width: '100%',
         height: '100%',
-        overflow: 'hidden'
+        overflow: 'hidden',
+        gap: 2,
+        padding: 2
       }}
     >
       {items}

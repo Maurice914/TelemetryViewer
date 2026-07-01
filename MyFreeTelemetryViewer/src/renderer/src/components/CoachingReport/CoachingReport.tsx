@@ -96,7 +96,7 @@ function CoachingReport({ onInfoChange }: CoachingReportProps) {
 
   if (laps.length < 2) {
     return (
-      <div style={{ padding: 16, color: '#888', fontSize: 13 }}>
+      <div style={{ padding: 16, color: 'var(--color-text-placeholder)', fontSize: 13 }}>
         Need at least 2 laps loaded to generate a coaching report.
       </div>
     )
@@ -106,7 +106,7 @@ function CoachingReport({ onInfoChange }: CoachingReportProps) {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', fontSize: 13 }}>
-      <div style={{ padding: '8px 12px', borderBottom: '1px solid #ccc', display: 'flex', alignItems: 'center', gap: 8 }}>
+      <div style={{ padding: '8px 12px', borderBottom: '1px solid var(--color-border)', display: 'flex', alignItems: 'center', gap: 8 }}>
         <span>Analyze lap:</span>
         <select
           value={selectedIndex}
@@ -116,7 +116,7 @@ function CoachingReport({ onInfoChange }: CoachingReportProps) {
             setError(null)
             setCorners([])
           }}
-          style={{ fontSize: 13, padding: '1px 4px', flex: 1 }}
+          style={{ fontSize: 13, padding: '1px 4px', flex: 1, maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', background: 'var(--color-bg)', color: 'var(--color-text)', border: '1px solid var(--color-border)', borderRadius: 4 }}
         >
           {laps.map((lap, i) => (
             <option key={i} value={i}>{lap.name}</option>
@@ -125,7 +125,7 @@ function CoachingReport({ onInfoChange }: CoachingReportProps) {
         <button
           onClick={handleAnalyze}
           disabled={loading}
-          style={{ fontSize: 13, padding: '2px 10px', cursor: loading ? 'wait' : 'pointer' }}
+          style={{ fontSize: 13, padding: '2px 10px', cursor: loading ? 'wait' : 'pointer', background: 'var(--color-bg)', color: 'var(--color-text)', border: '1px solid var(--color-border)', borderRadius: 4 }}
         >
           {loading ? 'Analyzing...' : 'Generate Report'}
         </button>
@@ -137,10 +137,10 @@ function CoachingReport({ onInfoChange }: CoachingReportProps) {
                 fontSize: 12,
                 padding: '2px 8px',
                 cursor: 'pointer',
-                background: showAll ? '#4488ff' : '#eee',
-                color: showAll ? '#fff' : '#333',
-                border: showAll ? '1px solid #3366cc' : '1px solid #ccc',
-                borderRadius: 3,
+                background: showAll ? '#4488ff' : 'var(--color-bg)',
+                color: showAll ? '#fff' : 'var(--color-text)',
+                border: showAll ? '1px solid #3366cc' : '1px solid var(--color-border)',
+                borderRadius: 4,
                 fontWeight: showAll ? 700 : 400
               }}
             >
@@ -152,10 +152,10 @@ function CoachingReport({ onInfoChange }: CoachingReportProps) {
                 fontSize: 12,
                 padding: '2px 8px',
                 cursor: 'pointer',
-                background: showCoaching ? '#44bb44' : '#eee',
-                color: showCoaching ? '#fff' : '#333',
-                border: showCoaching ? '1px solid #338833' : '1px solid #ccc',
-                borderRadius: 3,
+                background: showCoaching ? '#44bb44' : 'var(--color-bg)',
+                color: showCoaching ? '#fff' : 'var(--color-text)',
+                border: showCoaching ? '1px solid #338833' : '1px solid var(--color-border)',
+                borderRadius: 4,
                 fontWeight: showCoaching ? 700 : 400
               }}
             >
@@ -166,7 +166,7 @@ function CoachingReport({ onInfoChange }: CoachingReportProps) {
       </div>
 
       <div ref={textRef} style={{ flex: 1, overflow: 'auto', padding: '4px 8px', fontFamily: 'monospace', fontSize: 12, lineHeight: 1.5 }}>
-        {loading && <div style={{ color: '#666' }}>Running Python analysis...</div>}
+        {loading && <div style={{ color: 'var(--color-text-secondary)' }}>Running Python analysis...</div>}
         {error && <div style={{ color: '#c00' }}>Error: {error}</div>}
         {report && (
           <>
@@ -184,7 +184,7 @@ function CoachingReport({ onInfoChange }: CoachingReportProps) {
                   onClick={() => cornerIdx >= 0 && handleCornerClick(cornerIdx)}
                   style={{
                     whiteSpace: 'pre-wrap',
-                    background: isPinned ? '#d4e8ff' : isHovered ? '#fff8dc' : 'transparent',
+                    background: isPinned ? '#2a3a5c' : isHovered ? '#3a3a3a' : 'transparent',
                     cursor: cornerIdx >= 0 ? 'pointer' : 'default',
                     borderRadius: 3,
                     padding: '0 4px',

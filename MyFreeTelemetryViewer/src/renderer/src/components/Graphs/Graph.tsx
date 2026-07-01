@@ -195,7 +195,7 @@ function Graph({ dataKey, lines, centerBaseline, onInfoChange }: GraphProps) {
     const height = svg.clientHeight
     const y = height / 2
     return (
-      <line x1={settings.showRuler ? RULER_W : 0} y1={y} x2={settings.showRuler ? width : dataW} y2={y} stroke="#999" strokeWidth="1" strokeDasharray="4,4" />
+      <line x1={settings.showRuler ? RULER_W : 0} y1={y} x2={settings.showRuler ? width : dataW} y2={y} stroke="var(--color-muted)" strokeWidth="1" strokeDasharray="4,4" />
     )
   }
 
@@ -218,13 +218,13 @@ function Graph({ dataKey, lines, centerBaseline, onInfoChange }: GraphProps) {
     const ticks = niceTicks(minVal, maxVal)
     return (
       <g>
-        <rect x={0} y={0} width={RULER_W} height={height} fill="#fafafa" stroke="#ddd" />
+        <rect x={0} y={0} width={RULER_W} height={height} fill="var(--color-bg)" stroke="var(--color-border)" />
         {ticks.map((tick, i) => {
           const ty = (toY(tick) / 100) * height
           return (
             <g key={i}>
-              <line x1={RULER_W} y1={ty} x2={width} y2={ty} stroke="#eee" strokeWidth={1} />
-              <text x={3} y={ty + 3} fontSize={9} fill="#888">{formatTooltipVal(dataKey, tick)}</text>
+              <line x1={RULER_W} y1={ty} x2={width} y2={ty} stroke="var(--color-border)" strokeWidth={1} />
+              <text x={3} y={ty + 3} fontSize={9} fill="var(--color-text-secondary)">{formatTooltipVal(dataKey, tick)}</text>
             </g>
           )
         })}

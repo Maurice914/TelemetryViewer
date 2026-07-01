@@ -69,7 +69,7 @@ function TimeDeltaGraph({ onInfoChange }: TimeDeltaGraphProps) {
 
   if (laps.length < 2) {
     return (
-      <div style={{ padding: 16, color: '#888', fontSize: 13 }}>
+      <div style={{ padding: 16, color: 'var(--color-text-placeholder)', fontSize: 13 }}>
         Import at least 2 laps to see time delta
       </div>
     )
@@ -161,7 +161,7 @@ function TimeDeltaGraph({ onInfoChange }: TimeDeltaGraphProps) {
 
     const y = height * (1 - (0 - minDelta) / deltaRange)
     return (
-      <line x1={offsetX} y1={y} x2={width} y2={y} stroke="#999" strokeWidth="1" strokeDasharray="4,4" />
+      <line x1={offsetX} y1={y} x2={width} y2={y} stroke="var(--color-muted)" strokeWidth="1" strokeDasharray="4,4" />
     )
   }
 
@@ -204,13 +204,13 @@ function TimeDeltaGraph({ onInfoChange }: TimeDeltaGraphProps) {
     const ticks = niceTicks(minDelta, maxDelta)
     return (
       <g>
-        <rect x={0} y={0} width={RULER_W} height={height} fill="#fafafa" stroke="#ddd" />
+        <rect x={0} y={0} width={RULER_W} height={height} fill="var(--color-bg)" stroke="var(--color-border)" />
         {ticks.map((tick, i) => {
           const y = height * (1 - (tick - minDelta) / deltaRange)
           return (
             <g key={i}>
-              <line x1={RULER_W} y1={y} x2={width} y2={y} stroke="#eee" strokeWidth={1} />
-              <text x={3} y={y + 3} fontSize={9} fill="#888">{(tick >= 0 ? '+' : '') + tick.toFixed(1)}</text>
+              <line x1={RULER_W} y1={y} x2={width} y2={y} stroke="var(--color-border)" strokeWidth={1} />
+              <text x={3} y={y + 3} fontSize={9} fill="var(--color-text-secondary)">{(tick >= 0 ? '+' : '') + tick.toFixed(1)}</text>
             </g>
           )
         })}
