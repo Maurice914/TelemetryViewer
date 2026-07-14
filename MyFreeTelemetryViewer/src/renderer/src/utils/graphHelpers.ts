@@ -28,10 +28,10 @@ export function timeAtPct(points: Point[], times: number[], pct: number): number
   return times[times.length - 1]
 }
 
-export function niceTicks(min: number, max: number): number[] {
+export function niceTicks(min: number, max: number, fixedStep?: number): number[] {
   const range = max - min
   if (range === 0) return [min]
-  const step = range < 2 ? 0.1 : range < 20 ? 1 : range < 200 ? 10 : 100
+  const step = fixedStep ?? (range < 2 ? 0.1 : range < 20 ? 1 : range < 200 ? 10 : 100)
   const start = Math.ceil(min / step) * step
   const end = Math.floor(max / step) * step
   const ticks: number[] = []

@@ -215,7 +215,7 @@ function Graph({ dataKey, lines, centerBaseline, onInfoChange }: GraphProps) {
     if (!svg) return null
     const width = svg.clientWidth
     const height = svg.clientHeight
-    const ticks = niceTicks(minVal, maxVal)
+    const ticks = niceTicks(minVal, maxVal, dataKey === 'rpm' ? 500 : undefined)
     return (
       <g>
         <rect x={0} y={0} width={RULER_W} height={height} fill="var(--color-bg)" stroke="var(--color-border)" />
