@@ -87,3 +87,26 @@ export function screenToViewBox(clientX: number, clientY: number, rect: DOMRect)
     y: (clientY - rect.top - paddingY) / scaleFactor
   }
 }
+
+export function projectLatLon(
+  lat: number,
+  lon: number,
+  bounds: { minLat: number; maxLat: number; minLon: number; maxLon: number }
+): { x: number; y: number } {
+  const padding = 50
+  const width = 800
+  const height = 800
+  const drawW = width - 2 * padding
+  const drawH = height - 2 * padding
+  const midLat = (bounds.minLat + bounds.maxLat) / 2
+  const cosLat = Math.cos((midLat * Math.PI) / 180)
+  const latRange = bounds.maxLat - bounds.minLat
+  const lonRange = (bounds.maxLon - bounds.minLon) * cosLat
+  const scale = Math.min(drawW / lonRange, drawH / latRange)
+  const offsetX = (drawW - lonRange * scale) / 2
+  const offsetY = (drawH - latRange * scale) / 2
+  return {
+    x: padding + offsetX + (lon - bounds.minLon) * cosLat * scale,
+    y: padding + offsetY + (latRange - (lat - bounds.minLat)) * scale
+  }
+}

@@ -119,6 +119,71 @@ app.whenReady().then(() => {
     return { svgContent, overlay }
   })
 
+  ipcMain.handle('generate-boundaries', async (_event, points: { lat: number; lon: number; lapDistPct: number; throttle: number; brake: number; speed: number; rpm: number; steeringWheelAngle: number; gear: number; yaw: number; yawRate: number; latAccel: number; longAccel: number }[]) => {
+    const tmpDir = join(app.getPath('temp'), 'ml-coach-frontend')
+    mkdirSync(tmpDir, { recursive: true })
+    const csvPath = join(tmpDir, `telemetry-${Date.now()}.csv`)
+
+    const header = 'Speed,LapDistPct,Lat,Lon,Brake,Throttle,RPM,SteeringWheelAngle,Gear,Clutch,ABSActive,DRSActive,LatAccel,LongAccel,VertAccel,Yaw,YawRate,PositionType'
+    const rows = points.map((p) =>
+      `${p.speed},${p.lapDistPct},${p.lat},${p.lon},${p.brake},${p.throttle},${p.rpm},${p.steeringWheelAngle},${p.gear},0,false,false,${p.latAccel},${p.longAccel},0,${p.yaw},${p.yawRate},3`
+    )
+    const csvContent = header + '\n' + rows.join('\n')
+    writeFileSync(csvPath, csvContent, 'utf-8')
+
+    const boundariesDir = getTracksDir()
+    const outputPath = join(boundariesDir, 'boundaries.csv')
+
+    const exeDir = is.dev
+      ? join(app.getAppPath(), 'resources')
+      : process.resourcesPath
+    const exePath = join(exeDir, 'predict_boundaries.exe')
+
+    try {
+      await new Promise<void>((resolve, reject) => {
+        execFile(
+          exePath,
+          ['--telemetry', csvPath, '--output', outputPath],
+          { timeout: 60000 },
+          (err) => {
+            if (err) reject(err)
+            else resolve()
+          }
+        )
+      })
+
+      const csvText = readFileSync(outputPath, 'utf-8')
+      const lines = csvText.trim().split('\n')
+      if (lines.length < 2) throw new Error('No boundary data generated')
+      const hdrs = lines[0].split(',').map((h) => h.trim())
+      const latLIdx = hdrs.indexOf('boundary_L_lat')
+      const lonLIdx = hdrs.indexOf('boundary_L_lon')
+      const latRIdx = hdrs.indexOf('boundary_R_lat')
+      const lonRIdx = hdrs.indexOf('boundary_R_lon')
+
+      const left: { lat: number; lon: number }[] = []
+      const right: { lat: number; lon: number }[] = []
+      for (let i = 1; i < lines.length; i++) {
+        const cols = lines[i].split(',')
+        if (cols.length <= Math.max(latLIdx, lonLIdx, latRIdx, lonRIdx)) continue
+        const ll = parseFloat(cols[latLIdx])
+        const rl = parseFloat(cols[lonLIdx])
+        const rlt = parseFloat(cols[latRIdx])
+        const rln = parseFloat(cols[lonRIdx])
+        if (!isNaN(ll) && !isNaN(rl)) left.push({ lat: ll, lon: rl })
+        if (!isNaN(rlt) && !isNaN(rln)) right.push({ lat: rlt, lon: rln })
+      }
+
+      return {
+        left,
+        right,
+        debug: { hdrs, latLIdx, lonLIdx, latRIdx, lonRIdx, sampleRow: lines[1] }
+      }
+    } finally {
+      try { unlinkSync(csvPath) } catch { /* ignore */ }
+    }
+  })
+
   createWindow()
 
   if (!is.dev) {

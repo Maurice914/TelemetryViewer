@@ -35,6 +35,7 @@ declare global {
         fastPoints: { lapDistPct: number; speed: number; brake: number; throttle: number; steeringWheelAngle: number; rpm: number; gear: number; lat: number; lon: number }[]
         slowPoints: { lapDistPct: number; speed: number; brake: number; throttle: number; steeringWheelAngle: number; rpm: number; gear: number; lat: number; lon: number }[]
       }) => Promise<CoachingResult>
+      generateBoundaries: (points: { lat: number; lon: number; lapDistPct: number; throttle: number; brake: number; speed: number; rpm: number; steeringWheelAngle: number; gear: number; yaw: number; yawRate: number; latAccel: number; longAccel: number }[]) => Promise<{ left: { lat: number; lon: number }[]; right: { lat: number; lon: number }[]; debug: { hdrs: string[]; latLIdx: number; lonLIdx: number; latRIdx: number; lonRIdx: number; sampleRow: string } }>
     }
   }
 }

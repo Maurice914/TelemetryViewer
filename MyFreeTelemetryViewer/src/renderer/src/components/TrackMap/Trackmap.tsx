@@ -3,7 +3,7 @@ import styles from './Trackmap.module.css'
 import { useLapData } from '../../contexts/LapDataContext'
 import { useSettings } from '../../contexts/SettingsContext'
 import { calcElapsed, timeAtPct } from '../../utils/graphHelpers'
-import { toPixelPoints, screenToViewBox, CORNER_COLORS, PixelPoint } from './projection'
+import { toPixelPoints, screenToViewBox, projectLatLon, CORNER_COLORS, PixelPoint } from './projection'
 import { usePanZoom } from './usePanZoom'
 
 interface TrackmapProps {
@@ -24,6 +24,11 @@ function Trackmap({ onInfoChange }: TrackmapProps): React.JSX.Element {
   const [mapSearch, setMapSearch] = useState('')
   const [dropdownOpen, setDropdownOpen] = useState(false)
   const [timeSync, setTimeSync] = useState(false)
+  const [boundaries, setBoundaries] = useState<{
+    left: { lat: number; lon: number }[]
+    right: { lat: number; lon: number }[]
+  } | null>(null)
+  const [generating, setGenerating] = useState(false)
   const saveInputRef = useRef<HTMLInputElement>(null)
   const dropdownRef = useRef<HTMLDivElement>(null)
   const elapsedRef = useRef<number[][]>([])
@@ -47,6 +52,14 @@ function Trackmap({ onInfoChange }: TrackmapProps): React.JSX.Element {
     const b = projectionBoundsRef.current
     return laps.map((lap, i) => toPixelPoints(lap.points, b.minLat, b.maxLat, b.minLon, b.maxLon, 800, 800, i))
   }, [laps])
+
+  const boundaryPixelPoints = useMemo(() => {
+    if (!boundaries || !projectionBoundsRef.current) return null
+    const b = projectionBoundsRef.current
+    const left = boundaries.left.map((p) => projectLatLon(p.lat, p.lon, b)).filter((p) => !isNaN(p.x) && !isNaN(p.y))
+    const right = boundaries.right.map((p) => projectLatLon(p.lat, p.lon, b)).filter((p) => !isNaN(p.x) && !isNaN(p.y))
+    return { left, right }
+  }, [boundaries])
 
   const { pan, scale, handlePanMouseDown, dragging } = usePanZoom(svgRef, containerRef, pixelPoints, cornerHighlight)
 
@@ -92,6 +105,21 @@ function Trackmap({ onInfoChange }: TrackmapProps): React.JSX.Element {
     setSvgScale(overlay.scale)
     setSvgOffsetX(overlay.offsetX)
     setSvgOffsetY(overlay.offsetY)
+  }
+
+  async function handleGenerateBoundaries() {
+    const fastest = [...laps].sort((a, b) => a.totalTime - b.totalTime)[0]
+    if (!fastest) return
+    setGenerating(true)
+    try {
+      const result = await window.api.generateBoundaries(fastest.points)
+      setBoundaries(result)
+    } catch (err) {
+      console.error('Failed to generate boundaries:', err)
+    } finally {
+      setGenerating(false)
+      setDropdownOpen(false)
+    }
   }
 
   useEffect(() => {
@@ -271,6 +299,12 @@ function Trackmap({ onInfoChange }: TrackmapProps): React.JSX.Element {
             <button style={{ background: 'var(--color-bg)', border: '1px solid var(--color-border)', color: 'var(--color-text)', cursor: 'pointer', fontSize: 12, padding: '1px 6px', borderRadius: 4 }} onClick={() => { setDropdownOpen(!dropdownOpen); setMapSearch('') }}>Tracks</button>
             {dropdownOpen && (
               <div style={{ position: 'absolute', top: '100%', left: 0, background: 'var(--color-bg)', border: '1px solid var(--color-border)', zIndex: 1000, minWidth: 150 }}>
+                <div
+                  style={{ padding: '4px 8px', cursor: 'pointer', fontSize: 11, color: generating ? 'var(--color-muted)' : '#4488ff', borderBottom: '1px solid var(--color-border)' }}
+                  onClick={generating ? undefined : handleGenerateBoundaries}
+                >
+                  {generating ? 'Generating...' : 'Track not listed? Generate'}
+                </div>
                 <input
                   autoFocus
                   style={{ width: 'calc(100% - 8px)', margin: 4, fontSize: 11, padding: '2px 4px', boxSizing: 'border-box' }}
@@ -285,7 +319,7 @@ function Trackmap({ onInfoChange }: TrackmapProps): React.JSX.Element {
                   ) : filteredMaps.map((name) => (
                     <div
                       key={name}
-                      style={{ padding: '2px 8px', cursor: 'pointer', fontSize: 11, color: 'var(--color-text)' }}
+                      style={{ padding: '2px 8px', cursor: 'pointer', fontSize: 11, color: 'var(--color-text)', borderBottom: '1px solid var(--color-border)' }}
                       onClick={() => { handleLoadMap(name); setDropdownOpen(false) }}
                       onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--color-hover)')}
                       onMouseLeave={(e) => (e.currentTarget.style.background = 'none')}
@@ -360,6 +394,32 @@ function Trackmap({ onInfoChange }: TrackmapProps): React.JSX.Element {
                 strokeLinejoin="round"
               />
             ))}
+            {boundaryPixelPoints && (
+              <>
+                {boundaryPixelPoints.left.length > 0 && (
+                  <polyline
+                    key="b-l"
+                    points={boundaryPixelPoints.left.map((p) => `${p.x},${p.y}`).join(' ')}
+                    fill="none"
+                    stroke="var(--color-border)"
+                    strokeWidth={1.5 / scale}
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                )}
+                {boundaryPixelPoints.right.length > 0 && (
+                  <polyline
+                    key="b-r"
+                    points={boundaryPixelPoints.right.map((p) => `${p.x},${p.y}`).join(' ')}
+                    fill="none"
+                    stroke="var(--color-border)"
+                    strokeWidth={1.5 / scale}
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                )}
+              </>
+            )}
             {pixelPoints.map((pts, i) => (
               <polyline
                 key={i}
