@@ -1,4 +1,5 @@
 ## My Free Telemetry Viewer
+<img width="1918" height="1051" alt="image" src="https://github.com/user-attachments/assets/b55b5144-f1c4-4a30-b4dd-d6889c7565ea" />
 I made this software as an alternative to other free telemetry viewing software. There's a focus on customizability in how you make your layout as well as other settings that can be controlled by the users such as line width and colors in graphs. Still in development, future games will be supporting as well as more tracks added soon!
 
 Download the setup.exe file from the latest release.
