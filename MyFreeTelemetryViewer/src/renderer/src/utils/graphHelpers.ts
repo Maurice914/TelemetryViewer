@@ -39,3 +39,28 @@ export function niceTicks(min: number, max: number, fixedStep?: number): number[
   if (ticks.length === 0) ticks.push(min, max)
   return ticks
 }
+
+export type SpeedUnit = 'kmh' | 'mph'
+
+export const SPEED_UNIT_LABEL: Record<SpeedUnit, string> = {
+  kmh: 'km/h',
+  mph: 'mph'
+}
+
+export function toSpeedUnit(val: number, unit: SpeedUnit): number {
+  if (unit === 'mph') return val * 2.23694
+  return val * 3.6
+}
+
+let measureCanvas: HTMLCanvasElement | null = null
+
+export function measureTextWidth(text: string, fontSize: number): number {
+  if (!measureCanvas) {
+    if (typeof document === 'undefined') return text.length * fontSize * 0.6
+    measureCanvas = document.createElement('canvas')
+  }
+  const ctx = measureCanvas.getContext('2d')
+  if (!ctx) return text.length * fontSize * 0.6
+  ctx.font = `${fontSize}px sans-serif`
+  return ctx.measureText(text).width
+}

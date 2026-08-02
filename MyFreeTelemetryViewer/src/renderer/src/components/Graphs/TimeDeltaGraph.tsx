@@ -1,11 +1,9 @@
-import { useRef, useState, useEffect } from 'react'
+import { useRef, useState, useEffect, useMemo } from 'react'
 import { useLapData } from '../../contexts/LapDataContext'
 import { useSettings } from '../../contexts/SettingsContext'
 import { useGraphSelection } from '../../hooks/useGraphSelection'
-import { calcElapsed, timeAtPct, niceTicks } from '../../utils/graphHelpers'
+import { calcElapsed, timeAtPct, niceTicks, measureTextWidth } from '../../utils/graphHelpers'
 import Tooltip from './Tooltip'
-
-const RULER_W = 32
 
 interface TimeDeltaGraphProps {
   onInfoChange?: (text: string) => void
@@ -25,9 +23,6 @@ function TimeDeltaGraph({ onInfoChange }: TimeDeltaGraphProps) {
   const [hoveredPct, setHoveredPct] = useState<number | null>(null)
   const [isLocalHover, setIsLocalHover] = useState(false)
   const [mousePos, setMousePos] = useState({ clientX: 0, clientY: 0 })
-
-  const rulerOff = settings.showRuler ? RULER_W : 0
-  const { isSelecting, getPctFromMouse, handleMouseDown: selectionMouseDown, trySelectInMove, handleMouseUp: selectionMouseUp, handleKeyDown: selectionKeyDown, getSelectionRect } = useGraphSelection(svgRef, rulerOff)
 
   const displayHoveredPct = isLocalHover ? hoveredPct : hoveredLapPct
 
@@ -62,6 +57,17 @@ function TimeDeltaGraph({ onInfoChange }: TimeDeltaGraphProps) {
   const minDelta = allDeltas.length > 0 ? Math.min(...allDeltas) : 0
   const maxDelta = allDeltas.length > 0 ? Math.max(...allDeltas) : 0
   const deltaRange = maxDelta - minDelta || 1
+
+  const rulerWidth = useMemo(() => {
+    if (!settings.showRuler) return 0
+    const ticks = niceTicks(minDelta, maxDelta)
+    const shown = ticks.length > 12 ? ticks.filter((_, i) => i % 2 === 0) : ticks
+    let maxW = 0
+    for (const t of shown) maxW = Math.max(maxW, measureTextWidth((t >= 0 ? '+' : '') + t.toFixed(1), 9))
+    return Math.ceil(maxW) + 7
+  }, [settings.showRuler, minDelta, maxDelta])
+
+  const { isSelecting, getPctFromMouse, handleMouseDown: selectionMouseDown, trySelectInMove, handleMouseUp: selectionMouseUp, handleKeyDown: selectionKeyDown, getSelectionRect } = useGraphSelection(svgRef, rulerWidth)
 
   useEffect(() => {
     onInfoChange?.(laps.length < 2 ? 'Import 2+ laps' : '')
@@ -113,8 +119,8 @@ function TimeDeltaGraph({ onInfoChange }: TimeDeltaGraphProps) {
     if (!svg) return ''
 
     const width = svg.clientWidth
-    const dataW = width - (settings.showRuler ? RULER_W : 0)
-    const offsetX = settings.showRuler ? RULER_W : 0
+    const dataW = width - rulerWidth
+    const offsetX = rulerWidth
     const height = svg.clientHeight
 
     function deltaToY(delta: number): number {
@@ -156,7 +162,7 @@ function TimeDeltaGraph({ onInfoChange }: TimeDeltaGraphProps) {
     const svg = svgRef.current
     if (!svg) return null
     const width = svg.clientWidth
-    const offsetX = settings.showRuler ? RULER_W : 0
+    const offsetX = rulerWidth
     const height = svg.clientHeight
 
     const y = height * (1 - (0 - minDelta) / deltaRange)
@@ -179,7 +185,7 @@ function TimeDeltaGraph({ onInfoChange }: TimeDeltaGraphProps) {
     // Show dot for the first lap delta only
     const delta = lapDeltas[0].deltas[idx]
     const y = height * (1 - (delta - minDelta) / deltaRange)
-    const offsetX = settings.showRuler ? RULER_W : 0
+    const offsetX = rulerWidth
     const dataW = width - offsetX
     const x = offsetX + (selection
       ? ((displayHoveredPct - selection.startPct) / (selection.endPct - selection.startPct)) * dataW
@@ -202,15 +208,16 @@ function TimeDeltaGraph({ onInfoChange }: TimeDeltaGraphProps) {
     const width = svg.clientWidth
     const height = svg.clientHeight
     const ticks = niceTicks(minDelta, maxDelta)
+    const shown = ticks.length > 12 ? ticks.filter((_, i) => i % 2 === 0) : ticks
     return (
       <g>
-        <rect x={0} y={0} width={RULER_W} height={height} fill="var(--color-bg)" stroke="var(--color-border)" />
-        {ticks.map((tick, i) => {
+        <rect x={0} y={0} width={rulerWidth} height={height} fill="var(--color-bg)" stroke="var(--color-border)" />
+        {shown.map((tick, i) => {
           const y = height * (1 - (tick - minDelta) / deltaRange)
           return (
             <g key={i}>
-              <line x1={RULER_W} y1={y} x2={width} y2={y} stroke="var(--color-border)" strokeWidth={1} />
-              <text x={3} y={y + 3} fontSize={9} fill="var(--color-text-secondary)">{(tick >= 0 ? '+' : '') + tick.toFixed(1)}</text>
+              <line x1={rulerWidth} y1={y} x2={width} y2={y} stroke="var(--color-border)" strokeWidth={1} />
+              <text x={rulerWidth - 3} y={y + 3} fontSize={9} textAnchor="end" fill="var(--color-text-secondary)">{(tick >= 0 ? '+' : '') + tick.toFixed(1)}</text>
             </g>
           )
         })}

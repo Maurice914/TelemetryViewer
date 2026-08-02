@@ -218,6 +218,19 @@ function Toolbar() {
               Show ruler
             </label>
 
+            <div style={{ marginTop: 10, marginBottom: 4, fontWeight: 600, fontSize: 13 }}>Units</div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 3 }}>
+              <span style={{ width: 70, color: 'var(--color-text-secondary)' }}>Speed</span>
+              <select
+                value={settings.speedUnit}
+                onChange={(e) => update({ speedUnit: e.target.value as 'kmh' | 'mph' })}
+                style={{ background: 'var(--color-bg)', color: 'var(--color-text)', border: '1px solid var(--color-border)', borderRadius: 4, padding: '2px 4px', fontSize: 12 }}
+              >
+                <option value="kmh">km/h</option>
+                <option value="mph">mph</option>
+              </select>
+            </div>
+
             <div style={{ marginTop: 10, marginBottom: 4, fontWeight: 600, fontSize: 13 }}>Lap Colors</div>
             {laps.map((lap, i) => (
               <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 3 }}>

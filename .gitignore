@@ -13,3 +13,4 @@ MyTelemetryViewer/electron_bridge.spec
 /MyFreeTelemetryViewer/node_modules
 /MyFreeTelemetryViewer/out
 result.csv
+MyFreeTelemetryViewer/src/tracks/boundaries.csv

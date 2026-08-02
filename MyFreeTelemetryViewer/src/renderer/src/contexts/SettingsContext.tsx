@@ -1,10 +1,12 @@
 import { createContext, useContext, useState, useCallback, ReactNode } from 'react'
+import { SpeedUnit } from '../utils/graphHelpers'
 
 export interface UserSettings {
   trackLineWidth: number
   trackDotRadius: number
   graphLineWidth: number
   showRuler: boolean
+  speedUnit: SpeedUnit
   lapColors: Record<string, string>
 }
 
@@ -13,6 +15,7 @@ const defaults: UserSettings = {
   trackDotRadius: 7,
   graphLineWidth: 1.3,
   showRuler: false,
+  speedUnit: 'kmh',
   lapColors: {}
 }
 

@@ -1,9 +1,9 @@
-import { useRef, useState, useEffect } from 'react'
+import { useRef, useState, useEffect, useMemo } from 'react'
 import { Point } from '../../utils/csvParser'
 import { useLapData } from '../../contexts/LapDataContext'
 import { useSettings } from '../../contexts/SettingsContext'
 import { useGraphSelection } from '../../hooks/useGraphSelection'
-import { niceTicks } from '../../utils/graphHelpers'
+import { niceTicks, toSpeedUnit, SPEED_UNIT_LABEL, SpeedUnit, measureTextWidth } from '../../utils/graphHelpers'
 import Tooltip from './Tooltip'
 
 export type DataKey = 'throttle' | 'brake' | 'speed' | 'rpm' | 'steeringWheelAngle' | 'gear'
@@ -44,25 +44,31 @@ function findClosestPoints(lines: GraphLine[], pct: number): { point: Point; lin
   return result
 }
 
-function formatTooltipVal(dataKey: DataKey, val: number): string {
+function formatTooltipVal(dataKey: DataKey, val: number, unit: SpeedUnit): string {
   if (dataKey === 'throttle' || dataKey === 'brake') return `${(val * 100).toFixed(1)}%`
   if (dataKey === 'gear') return val.toFixed(0)
+  if (dataKey === 'speed') return `${val.toFixed(1)} ${SPEED_UNIT_LABEL[unit]}`
   return val.toFixed(1)
 }
 
-const RULER_W = 32
+function formatRulerVal(dataKey: DataKey, val: number): string {
+  if (dataKey === 'throttle' || dataKey === 'brake') return `${Math.round(val * 100)}%`
+  if (dataKey === 'gear') return val.toFixed(0)
+  return Math.round(val).toString()
+}
 
 function Graph({ dataKey, lines, centerBaseline, onInfoChange }: GraphProps) {
   const { hoveredLapPct, setHoveredLapPct, selection } = useLapData()
   const { settings } = useSettings()
+  const speedUnit = settings.speedUnit
   const svgRef = useRef<SVGSVGElement>(null)
-  const getVal = (p: Point) => p[dataKey as keyof Point] ?? 0
+  const getVal = (p: Point): number => {
+    const raw = (p[dataKey as keyof Point] as number) ?? 0
+    return dataKey === 'speed' ? toSpeedUnit(raw, speedUnit) : raw
+  }
   const [hoveredInfo, setHoveredInfo] = useState<{ point: Point; lineIndex: number }[] | null>(null)
   const [isLocalHover, setIsLocalHover] = useState(false)
   const [mousePos, setMousePos] = useState({ clientX: 0, clientY: 0 })
-
-  const rulerOff = settings.showRuler ? RULER_W : 0
-  const { isSelecting, selectStart, selectEnd, getPctFromMouse, handleMouseDown: selectionMouseDown, trySelectInMove, handleMouseUp: selectionMouseUp, handleKeyDown: selectionKeyDown, getSelectionRect } = useGraphSelection(svgRef, rulerOff)
 
   const allVals = lines.flatMap((l) => l.points.map(getVal))
   const minVal = Math.min(...allVals)
@@ -70,10 +76,22 @@ function Graph({ dataKey, lines, centerBaseline, onInfoChange }: GraphProps) {
   const valRange = maxVal - minVal || 1
   const maxAbs = Math.max(Math.abs(minVal), Math.abs(maxVal)) || 1
 
+  const rulerWidth = useMemo(() => {
+    if (!settings.showRuler) return 0
+    const ticks = niceTicks(minVal, maxVal, dataKey === 'rpm' ? 500 : undefined)
+    const shown = ticks.length > 12 ? ticks.filter((_, i) => i % 2 === 0) : ticks
+    let maxW = 0
+    for (const t of shown) maxW = Math.max(maxW, measureTextWidth(formatRulerVal(dataKey, t), 9))
+    return Math.ceil(maxW) + 7
+  }, [settings.showRuler, minVal, maxVal, dataKey])
+
+  const { isSelecting, selectStart, selectEnd, getPctFromMouse, handleMouseDown: selectionMouseDown, trySelectInMove, handleMouseUp: selectionMouseUp, handleKeyDown: selectionKeyDown, getSelectionRect } = useGraphSelection(svgRef, rulerWidth)
+
   function toY(val: number): number {
     if (centerBaseline) {
       return 50 - (val / maxAbs) * 50
     }
+    if (dataKey === 'gear' && minVal === maxVal) return 50
     return 100 - ((val - minVal) / valRange) * 100
   }
 
@@ -144,14 +162,14 @@ function Graph({ dataKey, lines, centerBaseline, onInfoChange }: GraphProps) {
     const svg = svgRef.current
     if (!svg) return ''
     const width = svg.clientWidth
-    const dataW = width - (settings.showRuler ? RULER_W : 0)
+    const dataW = width - rulerWidth
     const height = svg.clientHeight
     const sampled = downsample(points, Math.ceil(width))
 
     if (!selection) {
       return sampled
         .map((p) => {
-          const x = (settings.showRuler ? RULER_W : 0) + p.lapDistPct * dataW
+          const x = rulerWidth + p.lapDistPct * dataW
           const y = (toY(getVal(p)) / 100) * height
           return `${x},${y}`
         })
@@ -162,7 +180,7 @@ function Graph({ dataKey, lines, centerBaseline, onInfoChange }: GraphProps) {
     return sampled
       .filter((p) => p.lapDistPct >= startPct && p.lapDistPct <= endPct)
       .map((p) => {
-        const x = (settings.showRuler ? RULER_W : 0) + ((p.lapDistPct - startPct) / range) * dataW
+        const x = rulerWidth + ((p.lapDistPct - startPct) / range) * dataW
         const y = (toY(getVal(p)) / 100) * height
         return `${x},${y}`
       })
@@ -175,10 +193,10 @@ function Graph({ dataKey, lines, centerBaseline, onInfoChange }: GraphProps) {
     const svg = svgRef.current
     if (!svg) return null
     const width = svg.clientWidth
-    const dataW = width - (settings.showRuler ? RULER_W : 0)
+    const dataW = width - rulerWidth
     const height = svg.clientHeight
     return info.map((item, i) => {
-      const x = (settings.showRuler ? RULER_W : 0) + (selection
+      const x = rulerWidth + (selection
         ? ((item.point.lapDistPct - selection.startPct) / (selection.endPct - selection.startPct)) * dataW
         : item.point.lapDistPct * dataW)
       const y = (toY(getVal(item.point)) / 100) * height
@@ -191,11 +209,11 @@ function Graph({ dataKey, lines, centerBaseline, onInfoChange }: GraphProps) {
     const svg = svgRef.current
     if (!svg) return null
     const width = svg.clientWidth
-    const dataW = width - (settings.showRuler ? RULER_W : 0)
+    const dataW = width - rulerWidth
     const height = svg.clientHeight
     const y = height / 2
     return (
-      <line x1={settings.showRuler ? RULER_W : 0} y1={y} x2={settings.showRuler ? width : dataW} y2={y} stroke="var(--color-muted)" strokeWidth="1" strokeDasharray="4,4" />
+      <line x1={rulerWidth} y1={y} x2={settings.showRuler ? width : dataW} y2={y} stroke="var(--color-muted)" strokeWidth="1" strokeDasharray="4,4" />
     )
   }
 
@@ -204,7 +222,7 @@ function Graph({ dataKey, lines, centerBaseline, onInfoChange }: GraphProps) {
         <div key={i} style={{ color: '#fff', display: 'flex', alignItems: 'center', gap: 4 }}>
           <span style={{ width: 10, height: 10, borderRadius: 2, background: lines[item.lineIndex].color, display: 'inline-block', flexShrink: 0 }} />
           <span style={{ maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{lines[item.lineIndex].name}</span>
-          <span>: {formatTooltipVal(dataKey, getVal(item.point))}</span>
+          <span>: {formatTooltipVal(dataKey, getVal(item.point), speedUnit)}</span>
         </div>
       ))
     : ''
@@ -216,15 +234,16 @@ function Graph({ dataKey, lines, centerBaseline, onInfoChange }: GraphProps) {
     const width = svg.clientWidth
     const height = svg.clientHeight
     const ticks = niceTicks(minVal, maxVal, dataKey === 'rpm' ? 500 : undefined)
+    const shown = ticks.length > 12 ? ticks.filter((_, i) => i % 2 === 0) : ticks
     return (
       <g>
-        <rect x={0} y={0} width={RULER_W} height={height} fill="var(--color-bg)" stroke="var(--color-border)" />
-        {ticks.map((tick, i) => {
+        <rect x={0} y={0} width={rulerWidth} height={height} fill="var(--color-bg)" stroke="var(--color-border)" />
+        {shown.map((tick, i) => {
           const ty = (toY(tick) / 100) * height
           return (
             <g key={i}>
-              <line x1={RULER_W} y1={ty} x2={width} y2={ty} stroke="var(--color-border)" strokeWidth={1} />
-              <text x={3} y={ty + 3} fontSize={9} fill="var(--color-text-secondary)">{formatTooltipVal(dataKey, tick)}</text>
+              <line x1={rulerWidth} y1={ty} x2={width} y2={ty} stroke="var(--color-border)" strokeWidth={1} />
+              <text x={rulerWidth - 3} y={ty + 3} fontSize={9} textAnchor="end" fill="var(--color-text-secondary)">{formatRulerVal(dataKey, tick)}</text>
             </g>
           )
         })}

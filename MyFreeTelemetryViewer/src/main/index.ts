@@ -123,6 +123,7 @@ app.whenReady().then(() => {
     const tmpDir = join(app.getPath('temp'), 'ml-coach-frontend')
     mkdirSync(tmpDir, { recursive: true })
     const csvPath = join(tmpDir, `telemetry-${Date.now()}.csv`)
+    const outputPath = join(tmpDir, `boundaries-${Date.now()}.csv`)
 
     const header = 'Speed,LapDistPct,Lat,Lon,Brake,Throttle,RPM,SteeringWheelAngle,Gear,Clutch,ABSActive,DRSActive,LatAccel,LongAccel,VertAccel,Yaw,YawRate,PositionType'
     const rows = points.map((p) =>
@@ -130,9 +131,6 @@ app.whenReady().then(() => {
     )
     const csvContent = header + '\n' + rows.join('\n')
     writeFileSync(csvPath, csvContent, 'utf-8')
-
-    const boundariesDir = getTracksDir()
-    const outputPath = join(boundariesDir, 'boundaries.csv')
 
     const exeDir = is.dev
       ? join(app.getAppPath(), 'resources')
@@ -153,6 +151,10 @@ app.whenReady().then(() => {
       })
 
       const csvText = readFileSync(outputPath, 'utf-8')
+      if (is.dev) {
+        try { writeFileSync(join(getTracksDir(), 'boundaries.csv'), csvText, 'utf-8') } catch { /* ignore */ }
+      }
+
       const lines = csvText.trim().split('\n')
       if (lines.length < 2) throw new Error('No boundary data generated')
       const hdrs = lines[0].split(',').map((h) => h.trim())
@@ -174,13 +176,10 @@ app.whenReady().then(() => {
         if (!isNaN(rlt) && !isNaN(rln)) right.push({ lat: rlt, lon: rln })
       }
 
-      return {
-        left,
-        right,
-        debug: { hdrs, latLIdx, lonLIdx, latRIdx, lonRIdx, sampleRow: lines[1] }
-      }
+      return { left, right }
     } finally {
       try { unlinkSync(csvPath) } catch { /* ignore */ }
+      try { unlinkSync(outputPath) } catch { /* ignore */ }
     }
   })
 

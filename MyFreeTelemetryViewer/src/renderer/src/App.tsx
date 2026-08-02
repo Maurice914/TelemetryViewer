@@ -55,9 +55,13 @@ function usePaneState(initial: LayoutConfig) {
     saveLayout({ leftPanes, rightPanes, leftSizes, rightSizes, outerSizes })
   }, [leftPanes, rightPanes, leftSizes, rightSizes, outerSizes])
 
-  const addPane = useCallback((side: 'left' | 'right') => {
+  const addPane = useCallback((side: 'left' | 'right', i: number) => {
     const setter = side === 'left' ? setLeftPanes : setRightPanes
-    setter((prev) => [...prev, 'empty'])
+    setter((prev) => {
+      const next = [...prev]
+      next.splice(i + 1, 0, 'empty')
+      return next
+    })
   }, [])
 
   const removePane = useCallback((side: 'left' | 'right', i: number) => {
@@ -103,7 +107,7 @@ function App(): React.JSX.Element {
                   defaultComponent={comp}
                   onRemove={leftPanes.length > 1 ? () => removePane('left', i) : undefined}
                   onComponentChange={(id) => updatePane('left', i, id)}
-                  onAddPane={() => addPane('left')}
+                  onAddPane={() => addPane('left', i)}
                 />
               ))}
             </Splitter>
@@ -114,7 +118,7 @@ function App(): React.JSX.Element {
                   defaultComponent={comp}
                   onRemove={rightPanes.length > 1 ? () => removePane('right', i) : undefined}
                   onComponentChange={(id) => updatePane('right', i, id)}
-                  onAddPane={() => addPane('right')}
+                  onAddPane={() => addPane('right', i)}
                 />
               ))}
             </Splitter>

@@ -1,5 +1,5 @@
 appId: com.maurice914.telemetryviewer
-productName: MyTelemetryViewer
+productName: MyFreeTelemetryViewer
 directories:
   buildResources: build
 files:
@@ -19,12 +19,14 @@ extraResources:
 asarUnpack:
   - src/tracks/**
 win:
-  executableName: MyTelemetryViewer
+  executableName: MyFreeTelemetryViewer
 nsis:
   artifactName: ${name}-${version}-setup.${ext}
   shortcutName: ${productName}
   uninstallDisplayName: ${productName}
-  createDesktopShortcut: always
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
 mac:
   entitlementsInherit: build/entitlements.mac.plist
   extendInfo:

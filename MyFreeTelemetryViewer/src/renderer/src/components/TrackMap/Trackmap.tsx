@@ -97,6 +97,7 @@ function Trackmap({ onInfoChange }: TrackmapProps): React.JSX.Element {
 
   async function handleLoadMap(trackName: string) {
     if (!trackName) return
+    setBoundaries(null)
     const { svgContent, overlay } = await window.api.loadTrackOverlay(trackName)
     const match = svgContent.match(/viewBox=["']([^"']+)["']/)
     if (match) setSvgViewBox(match[1])
@@ -125,6 +126,10 @@ function Trackmap({ onInfoChange }: TrackmapProps): React.JSX.Element {
   useEffect(() => {
     window.api.listTracks().then(setSavedMaps).catch(() => {})
   }, [])
+
+  useEffect(() => {
+    setBoundaries(null)
+  }, [laps])
 
   useEffect(() => {
     elapsedRef.current = laps.map((lap) => calcElapsed(lap.points))
