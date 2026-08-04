@@ -1,6 +1,6 @@
 {
   "name": "MyFreeTelemetryViewer",
-  "version": "1.2.0",
+  "version": "1.2.3",
   "repository": "Maurice914/TelemtryViewer",
   "description": "A free telemetry viewer for iRacing with a focus on customization.",
   "main": "./out/main/index.js",
