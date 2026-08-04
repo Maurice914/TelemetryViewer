@@ -8,7 +8,6 @@ MyTelemetryViewer/electron_bridge.spec
 /MyTelemetryViewer/dist/win-unpacked
 /MyTelemetryViewer/dist
 /.vscode
-/MyFreeTelemetryViewer/build
 /MyFreeTelemetryViewer/dist
 /MyFreeTelemetryViewer/node_modules
 /MyFreeTelemetryViewer/out
