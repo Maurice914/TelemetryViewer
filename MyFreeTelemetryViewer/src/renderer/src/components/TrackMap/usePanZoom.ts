@@ -1,22 +1,15 @@
 import { useState, useRef, useEffect } from 'react'
-import { screenToViewBox, PixelPoint } from './projection'
+import { screenToViewBox } from './projection'
 
 export function usePanZoom(
   svgRef: React.RefObject<SVGSVGElement | null>,
-  containerRef: React.RefObject<HTMLDivElement | null>,
-  pixelPoints: PixelPoint[][],
-  cornerHighlight: { startPct: number; endPct: number } | null
+  containerRef: React.RefObject<HTMLDivElement | null>
 ) {
   const [pan, setPan] = useState({ x: 0, y: 0 })
   const [scale, setScale] = useState(1)
-  const panRef = useRef(pan)
-  const scaleRef = useRef(scale)
-  panRef.current = pan
-  scaleRef.current = scale
 
   const dragging = useRef(false)
   const dragStart = useRef({ mouseX: 0, mouseY: 0, panX: 0, panY: 0 })
-  const prevViewRef = useRef<{ pan: { x: number; y: number }; scale: number } | null>(null)
 
   function handlePanMouseDown(e: React.MouseEvent) {
     e.preventDefault()
@@ -75,52 +68,6 @@ export function usePanZoom(
     el.addEventListener('wheel', onWheel, { passive: false })
     return () => el.removeEventListener('wheel', onWheel)
   }, [scale, pan])
-
-  useEffect(() => {
-    if (cornerHighlight === null) {
-      if (prevViewRef.current) {
-        setPan(prevViewRef.current.pan)
-        setScale(prevViewRef.current.scale)
-        prevViewRef.current = null
-      }
-      return
-    }
-
-    if (pixelPoints.length === 0) return
-
-    if (!prevViewRef.current) {
-      prevViewRef.current = { pan: { ...panRef.current }, scale: scaleRef.current }
-    }
-
-    const { startPct, endPct } = cornerHighlight
-    const allPts = pixelPoints.flat().filter(
-      (p) => p.lapDistPct >= startPct && p.lapDistPct <= endPct
-    )
-
-    if (allPts.length === 0) return
-
-    const xs = allPts.map((p) => p.x)
-    const ys = allPts.map((p) => p.y)
-    const minX = Math.min(...xs)
-    const maxX = Math.max(...xs)
-    const minY = Math.min(...ys)
-    const maxY = Math.max(...ys)
-
-    const boxW = maxX - minX || 1
-    const boxH = maxY - minY || 1
-    const padding = 40
-    const centerX = (minX + maxX) / 2
-    const centerY = (minY + maxY) / 2
-
-    const targetScale = Math.min(
-      560 / (boxW + 2 * padding),
-      560 / (boxH + 2 * padding)
-    )
-    const clampedScale = Math.max(0.5, Math.min(targetScale, 50))
-
-    setPan({ x: 400 - centerX * clampedScale, y: 400 - centerY * clampedScale })
-    setScale(clampedScale)
-  }, [cornerHighlight, pixelPoints])
 
   return { pan, scale, handlePanMouseDown, dragging }
 }

@@ -8,8 +8,6 @@ export interface PixelPoint {
   yaw: number
 }
 
-export const CORNER_COLORS = ['#ff4444', '#44bb44', '#4488ff', '#ff8800', '#cc44cc', '#888888', '#44dddd', '#ff44aa']
-
 export function toPixelPoints(
   points: Point[],
   minLat: number,

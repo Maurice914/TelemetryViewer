@@ -3,7 +3,7 @@ import styles from './Trackmap.module.css'
 import { useLapData } from '../../contexts/LapDataContext'
 import { useSettings } from '../../contexts/SettingsContext'
 import { calcElapsed, timeAtPct } from '../../utils/graphHelpers'
-import { toPixelPoints, screenToViewBox, projectLatLon, CORNER_COLORS, PixelPoint } from './projection'
+import { toPixelPoints, screenToViewBox, projectLatLon, PixelPoint } from './projection'
 import { usePanZoom } from './usePanZoom'
 import { downsampleToN, findBestMatch, FINGERPRINT_POINTS } from '../../utils/trackMatch'
 
@@ -12,7 +12,7 @@ interface TrackmapProps {
 }
 
 function Trackmap({ onInfoChange }: TrackmapProps): React.JSX.Element {
-  const { laps, lapColors, hoveredLapPct, setHoveredLapPct, cornerHighlight, allCornerHighlights, referenceLapIndex } = useLapData()
+  const { laps, lapColors, hoveredLapPct, setHoveredLapPct, referenceLapIndex } = useLapData()
   const { settings } = useSettings()
 
   const [svgOverlay, setSvgOverlay] = useState<string | null>(null)
@@ -68,7 +68,7 @@ function Trackmap({ onInfoChange }: TrackmapProps): React.JSX.Element {
     return { left, right }
   }, [boundaries])
 
-  const { pan, scale, handlePanMouseDown, dragging } = usePanZoom(svgRef, containerRef, pixelPoints, cornerHighlight)
+  const { pan, scale, handlePanMouseDown, dragging } = usePanZoom(svgRef, containerRef)
 
   function scrub(e: React.MouseEvent, startVal: number, setter: (v: number) => void, factor: number, min: number, max: number) {
     e.preventDefault()
@@ -189,29 +189,6 @@ function Trackmap({ onInfoChange }: TrackmapProps): React.JSX.Element {
     document.addEventListener('mousedown', onMouseDown)
     return () => document.removeEventListener('mousedown', onMouseDown)
   }, [dropdownOpen])
-
-  const highlightSegments = useMemo(() => {
-    if (cornerHighlight === null || pixelPoints.length === 0) return []
-    const { startPct, endPct } = cornerHighlight
-    const segs: PixelPoint[][] = []
-    for (let i = 0; i < pixelPoints.length; i++) {
-      const filtered = pixelPoints[i].filter((p) => p.lapDistPct >= startPct && p.lapDistPct <= endPct)
-      if (filtered.length > 0) segs.push(filtered)
-    }
-    return segs
-  }, [cornerHighlight, pixelPoints])
-
-  const allSegments = useMemo(() => {
-    if (allCornerHighlights.length === 0 || pixelPoints.length === 0) return []
-    const segs: { pts: PixelPoint[]; idx: number }[] = []
-    for (const { startPct, endPct, idx } of allCornerHighlights) {
-      for (let i = 0; i < pixelPoints.length; i++) {
-        const filtered = pixelPoints[i].filter((p) => p.lapDistPct >= startPct && p.lapDistPct <= endPct)
-        if (filtered.length > 0) segs.push({ pts: filtered, idx })
-      }
-    }
-    return segs
-  }, [allCornerHighlights, pixelPoints])
 
   const hoveredPoints = useMemo(() => {
     if (hoveredLapPct === null || pixelPoints.length === 0) return []
@@ -419,47 +396,6 @@ function Trackmap({ onInfoChange }: TrackmapProps): React.JSX.Element {
               </g>
             )}
 
-            {allSegments.map((seg, i) => {
-              const color = CORNER_COLORS[seg.idx % CORNER_COLORS.length]
-              return (
-                <polyline
-                  key={`all-glow-${i}`}
-                  points={seg.pts.map((p) => `${p.x},${p.y}`).join(' ')}
-                  fill="none"
-                  stroke={color}
-                  strokeWidth={14 / scale}
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  opacity={0.3}
-                />
-              )
-            })}
-            {allSegments.map((seg, i) => {
-              const color = CORNER_COLORS[seg.idx % CORNER_COLORS.length]
-              return (
-                <polyline
-                  key={`all-${i}`}
-                  points={seg.pts.map((p) => `${p.x},${p.y}`).join(' ')}
-                  fill="none"
-                  stroke={color}
-                  strokeWidth={5 / scale}
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  opacity={0.95}
-                />
-              )
-            })}
-            {highlightSegments.map((pts, i) => (
-              <polyline
-                key={`hl-${i}`}
-                points={pts.map((p) => `${p.x},${p.y}`).join(' ')}
-                fill="none"
-                stroke="#ffcc00"
-                strokeWidth={4 / scale}
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
-            ))}
             {boundaryPixelPoints && (
               <>
                 {boundaryPixelPoints.left.length > 0 && (

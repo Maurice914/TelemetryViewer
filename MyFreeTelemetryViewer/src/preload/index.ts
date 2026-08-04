@@ -5,8 +5,6 @@ const api = {
     ipcRenderer.invoke('save-track-overlay', trackName, svgContent, overlay),
   listTracks: () => ipcRenderer.invoke('list-tracks'),
   loadTrackOverlay: (trackName: string) => ipcRenderer.invoke('load-track-overlay', trackName),
-  runCoaching: (data: { fastPoints: unknown[]; slowPoints: unknown[] }) =>
-    ipcRenderer.invoke('run-coaching', data),
   generateBoundaries: (points: { lat: number; lon: number; lapDistPct: number; throttle: number; brake: number; speed: number; rpm: number; steeringWheelAngle: number; gear: number; yaw: number; yawRate: number; latAccel: number; longAccel: number }[]) =>
     ipcRenderer.invoke('generate-boundaries', points),
   getTrackFingerprints: () => ipcRenderer.invoke('get-track-fingerprints'),

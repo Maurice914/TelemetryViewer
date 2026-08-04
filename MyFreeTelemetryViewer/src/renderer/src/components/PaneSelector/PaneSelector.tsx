@@ -3,7 +3,6 @@ import { useLapData } from '../../contexts/LapDataContext'
 import Trackmap from '../TrackMap/Trackmap'
 import Graph, { DataKey } from '../Graphs/Graph'
 import TimeDeltaGraph from '../Graphs/TimeDeltaGraph'
-import CoachingReport from '../CoachingReport/CoachingReport'
 import styles from './PaneSelector.module.css'
 
 function makeGraph(dataKey: DataKey, centerBaseline?: boolean) {
@@ -34,7 +33,6 @@ const COMPONENTS: Record<
   steering: makeGraph('steeringWheelAngle', true),
   gear: makeGraph('gear'),
   delta: TimeDeltaGraph,
-  coaching: CoachingReport,
   empty: EmptyPlaceholder
 }
 
@@ -65,7 +63,6 @@ function PaneSelector({ defaultComponent = 'empty', onRemove, onComponentChange,
           <option value="steering">Steering</option>
           <option value="gear">Gear</option>
           <option value="delta">Delta</option>
-          <option value="coaching">Coaching Report</option>
           <option value="empty">Empty</option>
         </select>
         {infoText && <span className={styles.infoText}>{infoText}</span>}

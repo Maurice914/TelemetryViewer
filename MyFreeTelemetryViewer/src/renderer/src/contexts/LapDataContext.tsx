@@ -37,10 +37,6 @@ interface LapDataContextType {
   dragSelection: { startPct: number; endPct: number } | null
   setDragSelection: (sel: { startPct: number; endPct: number } | null) => void
   referenceLapIndex: number
-  cornerHighlight: { startPct: number; endPct: number } | null
-  setCornerHighlight: (seg: { startPct: number; endPct: number } | null) => void
-  allCornerHighlights: { startPct: number; endPct: number; idx: number }[]
-  setAllCornerHighlights: (segs: { startPct: number; endPct: number; idx: number }[]) => void
 }
 
 function computeTotalTime(points: Point[]): number {
@@ -78,13 +74,6 @@ export function LapDataProvider({ children }: { children: ReactNode }) {
   const [dragSelection, setDragSelection] = useState<{ startPct: number; endPct: number } | null>(
     null
   )
-  const [cornerHighlight, setCornerHighlight] = useState<{
-    startPct: number
-    endPct: number
-  } | null>(null)
-  const [allCornerHighlights, setAllCornerHighlights] = useState<
-    { startPct: number; endPct: number; idx: number }[]
-  >([])
 
   const addLap = useCallback((points: Point[], name: string) => {
     setLaps((prev) => {
@@ -118,11 +107,7 @@ export function LapDataProvider({ children }: { children: ReactNode }) {
         setSelection,
         dragSelection,
         setDragSelection,
-        referenceLapIndex,
-        cornerHighlight,
-        setCornerHighlight,
-        allCornerHighlights,
-        setAllCornerHighlights
+        referenceLapIndex
       }}
     >
       {children}
