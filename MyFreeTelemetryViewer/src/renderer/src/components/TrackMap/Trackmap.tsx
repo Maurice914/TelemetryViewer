@@ -5,6 +5,7 @@ import { useSettings } from '../../contexts/SettingsContext'
 import { calcElapsed, timeAtPct } from '../../utils/graphHelpers'
 import { toPixelPoints, screenToViewBox, projectLatLon, CORNER_COLORS, PixelPoint } from './projection'
 import { usePanZoom } from './usePanZoom'
+import { downsampleToN, findBestMatch, FINGERPRINT_POINTS } from '../../utils/trackMatch'
 
 interface TrackmapProps {
   onInfoChange?: (text: string) => void
@@ -29,6 +30,12 @@ function Trackmap({ onInfoChange }: TrackmapProps): React.JSX.Element {
     right: { lat: number; lon: number }[]
   } | null>(null)
   const [generating, setGenerating] = useState(false)
+  const [selectedTrack, setSelectedTrack] = useState<string | null>(null)
+  const [detectedTrack, setDetectedTrack] = useState<string | null>(null)
+  const [fingerprints, setFingerprints] = useState<Record<string, { lat: number; lon: number }[]>>({})
+  const manuallySelectedRef = useRef(false)
+  const generationAttemptedRef = useRef(false)
+  const loadedForLapsRef = useRef<unknown[] | null>(null)
   const saveInputRef = useRef<HTMLInputElement>(null)
   const dropdownRef = useRef<HTMLDivElement>(null)
   const elapsedRef = useRef<number[][]>([])
@@ -81,6 +88,7 @@ function Trackmap({ onInfoChange }: TrackmapProps): React.JSX.Element {
       if (match) setSvgViewBox(match[1])
       const inner = text.replace(/<svg[^>]*>/i, '').replace(/<\/svg>/i, '')
       setSvgOverlay(inner)
+      loadedForLapsRef.current = laps
     }
     reader.readAsText(file)
   }
@@ -98,6 +106,7 @@ function Trackmap({ onInfoChange }: TrackmapProps): React.JSX.Element {
   async function handleLoadMap(trackName: string) {
     if (!trackName) return
     setBoundaries(null)
+    setSelectedTrack(trackName)
     const { svgContent, overlay } = await window.api.loadTrackOverlay(trackName)
     const match = svgContent.match(/viewBox=["']([^"']+)["']/)
     if (match) setSvgViewBox(match[1])
@@ -106,6 +115,20 @@ function Trackmap({ onInfoChange }: TrackmapProps): React.JSX.Element {
     setSvgScale(overlay.scale)
     setSvgOffsetX(overlay.offsetX)
     setSvgOffsetY(overlay.offsetY)
+    loadedForLapsRef.current = laps
+  }
+
+  function handleUserSelectTrack(trackName: string) {
+    manuallySelectedRef.current = true
+    handleLoadMap(trackName)
+  }
+
+  async function handleRememberTrack() {
+    if (!selectedTrack || laps.length === 0) return
+    const fastest = [...laps].sort((a, b) => a.totalTime - b.totalTime)[0]
+    if (!fastest) return
+    await window.api.saveTrackFingerprint(selectedTrack, downsampleToN(fastest.points, FINGERPRINT_POINTS))
+    setFingerprints(await window.api.getTrackFingerprints())
   }
 
   async function handleGenerateBoundaries() {
@@ -125,11 +148,34 @@ function Trackmap({ onInfoChange }: TrackmapProps): React.JSX.Element {
 
   useEffect(() => {
     window.api.listTracks().then(setSavedMaps).catch(() => {})
+    window.api.getTrackFingerprints().then(setFingerprints).catch(() => {})
   }, [])
 
   useEffect(() => {
+    manuallySelectedRef.current = false
+    generationAttemptedRef.current = false
+    setSelectedTrack(null)
+    setSvgOverlay(null)
+    setDetectedTrack(null)
     setBoundaries(null)
   }, [laps])
+
+  useEffect(() => {
+    if (laps.length === 0) {
+      setDetectedTrack(null)
+      return
+    }
+    const fastest = [...laps].sort((a, b) => a.totalTime - b.totalTime)[0]
+    if (!fastest) return
+    const match = findBestMatch(fastest.points, fingerprints)
+    setDetectedTrack(match?.track ?? null)
+    if (match && !manuallySelectedRef.current && match.track !== selectedTrack) {
+      handleLoadMap(match.track)
+    } else if (!match && !generating && !boundaries && !generationAttemptedRef.current) {
+      generationAttemptedRef.current = true
+      handleGenerateBoundaries()
+    }
+  }, [laps, fingerprints, selectedTrack, generating, boundaries])
 
   useEffect(() => {
     elapsedRef.current = laps.map((lap) => calcElapsed(lap.points))
@@ -250,6 +296,8 @@ function Trackmap({ onInfoChange }: TrackmapProps): React.JSX.Element {
     )
   }
 
+  const mapVisible = svgOverlay !== null && loadedForLapsRef.current === laps
+
   return (
     <div className={styles.base}>
       <div style={{ display: 'flex', gap: 6, padding: '4px 8px', alignItems: 'center', fontSize: 12 }}>
@@ -259,7 +307,7 @@ function Trackmap({ onInfoChange }: TrackmapProps): React.JSX.Element {
           Time sync
         </label>
         <input ref={svgInputRef} type="file" accept=".svg" style={{ display: 'none' }} onChange={handleSvgImport} />
-        {svgOverlay && (
+        {mapVisible && (
           <>
             {import.meta.env.DEV && (
               <>
@@ -296,10 +344,23 @@ function Trackmap({ onInfoChange }: TrackmapProps): React.JSX.Element {
                 )}
               </>
             )}
-            <button style={{ background: 'var(--color-bg)', border: '1px solid var(--color-border)', color: 'var(--color-text)', cursor: 'pointer', fontSize: 12, padding: '1px 6px', borderRadius: 4 }} onClick={() => { setSvgOverlay(null); setSvgScale(1); setSvgOffsetX(0); setSvgOffsetY(0) }}>Remove</button>
+            <button style={{ background: 'var(--color-bg)', border: '1px solid var(--color-border)', color: 'var(--color-text)', cursor: 'pointer', fontSize: 12, padding: '1px 6px', borderRadius: 4 }} onClick={() => { setSvgOverlay(null); setSvgScale(1); setSvgOffsetX(0); setSvgOffsetY(0); setSelectedTrack(null) }}>Remove</button>
           </>
         )}
-        {savedMaps.length > 0 && (
+        <button
+          style={{ background: 'var(--color-bg)', border: '1px solid var(--color-border)', color: selectedTrack && laps.length > 0 ? 'var(--color-text)' : 'var(--color-text-placeholder)', cursor: selectedTrack && laps.length > 0 ? 'pointer' : 'default', fontSize: 12, padding: '1px 6px', borderRadius: 4 }}
+          onClick={selectedTrack && laps.length > 0 ? handleRememberTrack : undefined}
+          title={selectedTrack ? `Save fingerprint for ${selectedTrack}` : 'Select a track and load a lap first'}
+        >
+          Remember track
+        </button>
+        {detectedTrack && (
+          <span style={{ color: 'var(--color-muted)', fontSize: 11, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>detected: {detectedTrack}</span>
+        )}
+        {!detectedTrack && laps.length > 0 && Object.keys(fingerprints).length > 0 && (
+          <span style={{ color: 'var(--color-muted)', fontSize: 11 }}>no track match</span>
+        )}
+        {import.meta.env.DEV && savedMaps.length > 0 && (
           <div ref={dropdownRef} style={{ position: 'relative', display: 'inline-block' }}>
             <button style={{ background: 'var(--color-bg)', border: '1px solid var(--color-border)', color: 'var(--color-text)', cursor: 'pointer', fontSize: 12, padding: '1px 6px', borderRadius: 4 }} onClick={() => { setDropdownOpen(!dropdownOpen); setMapSearch('') }}>Tracks</button>
             {dropdownOpen && (
@@ -316,7 +377,7 @@ function Trackmap({ onInfoChange }: TrackmapProps): React.JSX.Element {
                   placeholder="search"
                   value={mapSearch}
                   onChange={(e) => setMapSearch(e.target.value)}
-                  onKeyDown={(e) => { if (e.key === 'Enter' && filteredMaps[0]) { handleLoadMap(filteredMaps[0]); setDropdownOpen(false) }}}
+                  onKeyDown={(e) => { if (e.key === 'Enter' && filteredMaps[0]) { handleUserSelectTrack(filteredMaps[0]); setDropdownOpen(false) }}}
                 />
                 <div style={{ maxHeight: 180, overflowY: 'auto' }}>
                   {filteredMaps.length === 0 ? (
@@ -325,7 +386,7 @@ function Trackmap({ onInfoChange }: TrackmapProps): React.JSX.Element {
                     <div
                       key={name}
                       style={{ padding: '2px 8px', cursor: 'pointer', fontSize: 11, color: 'var(--color-text)', borderBottom: '1px solid var(--color-border)' }}
-                      onClick={() => { handleLoadMap(name); setDropdownOpen(false) }}
+                      onClick={() => { handleUserSelectTrack(name); setDropdownOpen(false) }}
                       onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--color-hover)')}
                       onMouseLeave={(e) => (e.currentTarget.style.background = 'none')}
                     >
@@ -349,7 +410,7 @@ function Trackmap({ onInfoChange }: TrackmapProps): React.JSX.Element {
           onMouseMove={handleMouseMove}
         >
           <g transform={`translate(${pan.x}, ${pan.y}) scale(${scale})`}>
-            {svgOverlay && (
+            {mapVisible && (
               <g
                 opacity={0.3}
                 transform={`translate(${svgOffsetX + (800 - 800 * svgScale) / 2}, ${svgOffsetY + (800 - 800 * svgScale) / 2}) scale(${svgScale})`}

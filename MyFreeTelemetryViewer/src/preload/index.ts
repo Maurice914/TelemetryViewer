@@ -8,7 +8,10 @@ const api = {
   runCoaching: (data: { fastPoints: unknown[]; slowPoints: unknown[] }) =>
     ipcRenderer.invoke('run-coaching', data),
   generateBoundaries: (points: { lat: number; lon: number; lapDistPct: number; throttle: number; brake: number; speed: number; rpm: number; steeringWheelAngle: number; gear: number; yaw: number; yawRate: number; latAccel: number; longAccel: number }[]) =>
-    ipcRenderer.invoke('generate-boundaries', points)
+    ipcRenderer.invoke('generate-boundaries', points),
+  getTrackFingerprints: () => ipcRenderer.invoke('get-track-fingerprints'),
+  saveTrackFingerprint: (trackName: string, points: { lat: number; lon: number }[]) =>
+    ipcRenderer.invoke('save-track-fingerprint', trackName, points)
 }
 
 if (process.contextIsolated) {

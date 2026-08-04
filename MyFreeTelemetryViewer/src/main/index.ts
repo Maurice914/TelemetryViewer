@@ -119,6 +119,40 @@ app.whenReady().then(() => {
     return { svgContent, overlay }
   })
 
+  ipcMain.handle('get-track-fingerprints', () => {
+    const result: Record<string, { lat: number; lon: number }[]> = {}
+    const readInto = (path: string, override: boolean) => {
+      if (!existsSync(path)) return
+      try {
+        const parsed = JSON.parse(readFileSync(path, 'utf-8')) as Record<string, { lat: number; lon: number }[]>
+        for (const [key, value] of Object.entries(parsed)) {
+          if (override) result[key] = value
+          else if (!(key in result)) result[key] = value
+        }
+      } catch {
+        /* ignore */
+      }
+    }
+    readInto(join(getTracksDir(), 'tracks.json'), false)
+    readInto(join(app.getPath('userData'), 'tracks.json'), true)
+    return result
+  })
+
+  ipcMain.handle('save-track-fingerprint', (_event, trackName: string, points: { lat: number; lon: number }[]) => {
+    const path = is.dev
+      ? join(getTracksDir(), 'tracks.json')
+      : join(app.getPath('userData'), 'tracks.json')
+    let data: Record<string, { lat: number; lon: number }[]> = {}
+    try {
+      if (existsSync(path)) data = JSON.parse(readFileSync(path, 'utf-8'))
+    } catch {
+      /* ignore */
+    }
+    data[trackName] = points
+    writeFileSync(path, JSON.stringify(data, null, 2), 'utf-8')
+    return true
+  })
+
   ipcMain.handle('generate-boundaries', async (_event, points: { lat: number; lon: number; lapDistPct: number; throttle: number; brake: number; speed: number; rpm: number; steeringWheelAngle: number; gear: number; yaw: number; yawRate: number; latAccel: number; longAccel: number }[]) => {
     const tmpDir = join(app.getPath('temp'), 'ml-coach-frontend')
     mkdirSync(tmpDir, { recursive: true })
